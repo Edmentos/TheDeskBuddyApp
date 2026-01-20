@@ -2,8 +2,12 @@ from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.db.database import check_db_connection
+from app.api import readings
 
 app = FastAPI(title="DeskBuddy API")
+
+# Include routers
+app.include_router(readings.router)
 
 # Configure CORS for frontend
 app.add_middleware(
