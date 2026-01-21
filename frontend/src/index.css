@@ -101,8 +101,48 @@ nav a.active {
   background-color: #4ade80;
 }
 
+.status-indicator.warning {
+  background-color: #fbbf24;
+}
+
 .status-indicator.error {
   background-color: #f87171;
+}
+
+.sensor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.sensor-tile {
+  background-color: #1a1a1a;
+  border-radius: 8px;
+  padding: 1.5rem;
+  text-align: center;
+  transition: transform 0.2s;
+}
+
+.sensor-tile:hover {
+  transform: translateY(-2px);
+}
+
+.sensor-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.sensor-label {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 0.5rem;
+}
+
+.sensor-value {
+  font-size: 2rem;
+  font-weight: bold;
+  color: #4ade80;
 }
 
 @media (prefers-color-scheme: light) {
@@ -110,12 +150,20 @@ nav a.active {
     color: #213547;
     background-color: #ffffff;
   }
-  
+
   button {
     background-color: #f9f9f9;
   }
-  
-  nav, .card {
+
+  nav, .card, .sensor-tile {
     background-color: #f9f9f9;
+  }
+
+  .sensor-label {
+    color: rgba(0, 0, 0, 0.6);
+  }
+
+  .sensor-value {
+    color: #16a34a;
   }
 }
