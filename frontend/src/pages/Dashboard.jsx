@@ -1,10 +1,28 @@
 import { useState, useEffect } from 'react';
+<<<<<<< HEAD
 import { getHealth, listSerialPorts, connectToSerial, disconnectFromSerial, getSerialStatus, getSerialData } from '../services/api';
+=======
+import { getHealth } from '../services/api';
+import { useDeskBuddyStream } from '../hooks/useDeskBuddyStream';
+
+const STATUS_MAP = {
+  connected: { text: 'Live', class: 'ok' },
+  connecting: { text: 'Connecting...', class: 'warning' },
+  disconnected: { text: 'Disconnected', class: 'error' }
+};
+
+const SENSORS = [
+  { key: 'temp_c', icon: '🌡️', label: 'Temperature', unit: '°C', decimals: 1 },
+  { key: 'hum_pct', icon: '💧', label: 'Humidity', unit: '%', decimals: 0 },
+  { key: 'distance_cm', icon: '📏', label: 'Distance', unit: 'cm', decimals: 1 }
+];
+>>>>>>> 1c9d3e33955ef50b56532bb0458b2aa690686ba8
 
 function Dashboard() {
   const [health, setHealth] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+<<<<<<< HEAD
   
   // Serial connection state
   const [ports, setPorts] = useState([]);
@@ -13,6 +31,9 @@ function Dashboard() {
   const [serialData, setSerialData] = useState(null);
   const [serialError, setSerialError] = useState(null);
   const [connecting, setConnecting] = useState(false);
+=======
+  const { data: sensorData, status: wsStatus } = useDeskBuddyStream('ws://localhost:8000/stream');
+>>>>>>> 1c9d3e33955ef50b56532bb0458b2aa690686ba8
 
   useEffect(() => {
     async function fetchHealth() {
@@ -33,6 +54,7 @@ function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
+<<<<<<< HEAD
   // Fetch available serial ports on mount
   useEffect(() => {
     async function fetchPorts() {
@@ -110,11 +132,38 @@ function Dashboard() {
       setSerialError('Failed to refresh ports');
     }
   };
+=======
+  const formatValue = (value, unit, decimals = 1) =>
+    value == null ? '--' : `${value.toFixed(decimals)}${unit}`;
+
+  const { text: statusText, class: statusClass } = STATUS_MAP[wsStatus];
+>>>>>>> 1c9d3e33955ef50b56532bb0458b2aa690686ba8
 
   return (
     <div>
       <h1>Dashboard</h1>
+<<<<<<< HEAD
       
+=======
+
+      <div className="card">
+        <div className="status">
+          <div className={`status-indicator ${statusClass}`}></div>
+          <p>Stream: {statusText}</p>
+        </div>
+      </div>
+
+      <div className="sensor-grid">
+        {SENSORS.map(({ key, icon, label, unit, decimals }) => (
+          <div key={key} className="sensor-tile">
+            <div className="sensor-icon">{icon}</div>
+            <div className="sensor-label">{label}</div>
+            <div className="sensor-value">{formatValue(sensorData[key], unit, decimals)}</div>
+          </div>
+        ))}
+      </div>
+
+>>>>>>> 1c9d3e33955ef50b56532bb0458b2aa690686ba8
       <div className="card">
         <h2>Backend Status</h2>
         {loading && <p>Loading...</p>}
