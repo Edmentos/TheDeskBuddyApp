@@ -1,8 +1,5 @@
 import { useState, useEffect } from 'react';
-<<<<<<< HEAD
-import { getHealth, listSerialPorts, connectToSerial, disconnectFromSerial, getSerialStatus, getSerialData } from '../services/api';
-=======
-import { getHealth } from '../services/api';
+import { getHealth, listSerialPorts, connectToSerial, autoConnectToSerial, disconnectFromSerial, getSerialStatus, getSerialData } from '../services/api';
 import { useDeskBuddyStream } from '../hooks/useDeskBuddyStream';
 
 const STATUS_MAP = {
@@ -16,24 +13,24 @@ const SENSORS = [
   { key: 'hum_pct', icon: '💧', label: 'Humidity', unit: '%', decimals: 0 },
   { key: 'distance_cm', icon: '📏', label: 'Distance', unit: 'cm', decimals: 1 }
 ];
->>>>>>> 1c9d3e33955ef50b56532bb0458b2aa690686ba8
 
 function Dashboard() {
   const [health, setHealth] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-<<<<<<< HEAD
-  
+
   // Serial connection state
   const [ports, setPorts] = useState([]);
   const [selectedPort, setSelectedPort] = useState('');
   const [serialStatus, setSerialStatus] = useState({ connected: false, port: null });
-  const [serialData, setSerialData] = useState(null);
   const [serialError, setSerialError] = useState(null);
   const [connecting, setConnecting] = useState(false);
-=======
+
+  // WebSocket live data
   const { data: sensorData, status: wsStatus } = useDeskBuddyStream('ws://localhost:8000/stream');
->>>>>>> 1c9d3e33955ef50b56532bb0458b2aa690686ba8
+
+  const formatValue = (value, unit, decimals = 1) =>
+    value == null ? '--' : `${Number(value).toFixed(decimals)}${unit}`;
 
   useEffect(() => {
     async function fetchHealth() {
@@ -54,7 +51,6 @@ function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-<<<<<<< HEAD
   // Fetch available serial ports on mount
   useEffect(() => {
     async function fetchPorts() {
@@ -111,6 +107,21 @@ function Dashboard() {
     }
   };
 
+  const handleAutoConnect = async () => {
+    setConnecting(true);
+    setSerialError(null);
+    
+    try {
+      const result = await autoConnectToSerial();
+      setSerialError(null);
+      setSelectedPort(result.port);
+    } catch (err) {
+      setSerialError(err.message || 'Failed to auto-connect');
+    } finally {
+      setConnecting(false);
+    }
+  };
+
   const handleDisconnect = async () => {
     try {
       await disconnectFromSerial();
@@ -132,19 +143,12 @@ function Dashboard() {
       setSerialError('Failed to refresh ports');
     }
   };
-=======
-  const formatValue = (value, unit, decimals = 1) =>
-    value == null ? '--' : `${value.toFixed(decimals)}${unit}`;
 
   const { text: statusText, class: statusClass } = STATUS_MAP[wsStatus];
->>>>>>> 1c9d3e33955ef50b56532bb0458b2aa690686ba8
 
   return (
     <div>
       <h1>Dashboard</h1>
-<<<<<<< HEAD
-      
-=======
 
       <div className="card">
         <div className="status">
@@ -163,7 +167,6 @@ function Dashboard() {
         ))}
       </div>
 
->>>>>>> 1c9d3e33955ef50b56532bb0458b2aa690686ba8
       <div className="card">
         <h2>Backend Status</h2>
         {loading && <p>Loading...</p>}
@@ -232,6 +235,12 @@ function Dashboard() {
             >
               {connecting ? 'Connecting...' : 'Connect'}
             </button>
+            <button 
+              onClick={handleAutoConnect} 
+              disabled={connecting}
+            >
+              Auto-Connect
+            </button>
           </div>
         ) : (
           <button onClick={handleDisconnect}>Disconnect</button>
@@ -240,21 +249,6 @@ function Dashboard() {
         {serialError && (
           <div style={{ marginTop: '1rem', color: '#f87171' }}>
             <p>Error: {serialError}</p>
-          </div>
-        )}
-
-        {serialData && (
-          <div style={{ marginTop: '1rem' }}>
-            <h3>Latest Data:</h3>
-            <pre style={{ 
-              background: '#1a1a1a', 
-              padding: '1rem', 
-              borderRadius: '4px',
-              overflow: 'auto',
-              maxHeight: '300px'
-            }}>
-              {JSON.stringify(serialData, null, 2)}
-            </pre>
           </div>
         )}
       </div>

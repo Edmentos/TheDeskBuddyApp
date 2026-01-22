@@ -46,6 +46,22 @@ export async function connectToSerial(port, baudrate = 115200) {
   }
 }
 
+export async function autoConnectToSerial(baudrate = 115200) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/serial/auto-connect?baudrate=${baudrate}`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Failed to auto-connect to ESP32');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error auto-connecting to serial:', error);
+    throw error;
+  }
+}
+
 export async function disconnectFromSerial() {
   try {
     const response = await fetch(`${API_BASE_URL}/serial/disconnect`, {

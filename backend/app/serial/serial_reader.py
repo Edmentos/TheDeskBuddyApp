@@ -1,139 +1,170 @@
+"""ESP32 serial communication module."""
+import json
+import re
+import threading
+import time
+from typing import Callable, Dict, List, Optional
+
 import serial
 import serial.tools.list_ports
-from typing import Optional, List, Dict
-import json
-import time
-import threading
 
 
 class ESP32SerialReader:
-    """Manages serial connection to ESP32 device"""
-    
-    def __init__(self):
+    """Manages serial connection to ESP32 device with auto-reconnect."""
+    def __init__(self, on_reading: Optional[Callable[[Dict], None]] = None):
         self.serial_connection: Optional[serial.Serial] = None
         self.port: Optional[str] = None
         self.is_connected: bool = False
         self.latest_data: Optional[Dict] = None
         self.read_thread: Optional[threading.Thread] = None
         self.stop_reading: bool = False
-    
+        self.on_reading = on_reading
+        self.auto_reconnect = False
+
     @staticmethod
     def list_available_ports() -> List[Dict[str, str]]:
-        """List all available serial ports"""
-        ports = []
+        """List all available serial ports with descriptions."""
+        return [
+            {"port": p.device, "description": p.description, "hwid": p.hwid}
+            for p in serial.tools.list_ports.comports()
+        ]
+
+    @staticmethod
+    def find_esp32_port() -> Optional[str]:
+        """Auto-detect ESP32 by looking for common USB-to-serial chips."""
+        esp32_identifiers = [
+            'CP210', 'CH340', 'CH341', 'UART', 'USB-SERIAL', 'USB2.0-Serial'
+        ]
+
         for port in serial.tools.list_ports.comports():
-            ports.append({
-                "port": port.device,
-                "description": port.description,
-                "hwid": port.hwid
-            })
-        return ports
-    
-    def connect(self, port: str, baudrate: int = 115200, timeout: float = 2.0) -> bool:
-        """
-        Connect to ESP32 on specified port
-        
-        Common issues and solutions:
-        - Baudrate must match ESP32 configuration (default 115200)
-        - Timeout should be reasonable (1-3 seconds)
-        - Port might need permissions on Linux (add user to dialout group)
-        """
+            description = port.description.upper()
+            hwid = port.hwid.upper()
+
+            if any(
+                identifier in description or identifier in hwid
+                for identifier in esp32_identifiers
+            ):
+                return port.device
+        return None
+
+    def auto_connect(self, baudrate: int = 115200) -> bool:
+        """Automatically find and connect to ESP32."""
+        esp32_port = self.find_esp32_port()
+        if esp32_port:
+            return self.connect(esp32_port, baudrate)
+        return False
+
+    def connect(
+        self,
+        port: str,
+        baudrate: int = 115200,
+        timeout: float = 2.0,
+        auto_reconnect: bool = True
+    ) -> bool:
+        """Connect to ESP32 on specified port with auto-reconnect support."""
         if self.is_connected:
             return True
-        
+
         try:
-            # Create serial connection with proper settings
             self.serial_connection = serial.Serial(
-                port=port,
-                baudrate=baudrate,
-                bytesize=serial.EIGHTBITS,
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE,
-                timeout=timeout,
-                write_timeout=timeout
+                port=port, baudrate=baudrate, timeout=timeout, write_timeout=timeout,
+                xonxoff=False, rtscts=False, dsrdtr=False
             )
-            
-            # Give the connection a moment to stabilize
-            time.sleep(0.5)
-            
-            # Clear any stale data in buffers
+            time.sleep(1.0)
             self.serial_connection.reset_input_buffer()
             self.serial_connection.reset_output_buffer()
-            
+
             self.port = port
             self.is_connected = True
+            self.auto_reconnect = auto_reconnect
             self.stop_reading = False
-            
-            # Start background thread to read data
             self.read_thread = threading.Thread(target=self._read_loop, daemon=True)
             self.read_thread.start()
-            
             return True
-            
-        except serial.SerialException as e:
-            print(f"Failed to connect to {port}: {e}")
+
+        except (serial.SerialException, OSError) as e:
+            print(f"Connection error: {e}")
             self.is_connected = False
             return False
-        except Exception as e:
-            print(f"Unexpected error connecting to {port}: {e}")
-            self.is_connected = False
-            return False
-    
+
     def disconnect(self):
-        """Disconnect from ESP32"""
+        """Disconnect from ESP32 and stop reading thread."""
         self.stop_reading = True
         self.is_connected = False
-        
+
         if self.read_thread:
             self.read_thread.join(timeout=2.0)
-        
+
         if self.serial_connection and self.serial_connection.is_open:
             try:
                 self.serial_connection.close()
-            except Exception as e:
-                print(f"Error closing serial connection: {e}")
-        
+            except (serial.SerialException, OSError) as e:
+                print(f"Close error: {e}")
+
         self.serial_connection = None
         self.port = None
         self.latest_data = None
-    
+
     def _read_loop(self):
-        """Background thread to continuously read from serial port"""
-        while not self.stop_reading and self.serial_connection and self.serial_connection.is_open:
+        """Background thread loop for reading serial data with auto-reconnect."""
+        while not self.stop_reading:
+            if not self.serial_connection or not self.serial_connection.is_open:
+                if self.auto_reconnect and self.port:
+                    print(f"Attempting to reconnect to {self.port}...")
+                    time.sleep(2.0)
+                    try:
+                        self.serial_connection = serial.Serial(
+                            port=self.port, baudrate=115200, timeout=2.0,
+                            xonxoff=False, rtscts=False, dsrdtr=False
+                        )
+                        self.is_connected = True
+                        print(f"Reconnected to {self.port}")
+                    except (serial.SerialException, OSError):
+                        continue
+                else:
+                    break
+
             try:
                 if self.serial_connection.in_waiting > 0:
                     line = self.serial_connection.readline()
                     try:
-                        # Decode and strip whitespace
                         data_str = line.decode('utf-8').strip()
-                        
-                        # Try to parse as JSON
+                        # Strip Arduino Serial Monitor timestamp
+                        # (e.g., "17:09:47.625 -> ")
+                        data_str = re.sub(
+                            r'^\d{2}:\d{2}:\d{2}\.\d{3}\s*->\s*',
+                            '',
+                            data_str
+                        )
+
+                        if not data_str:
+                            continue
+
                         try:
                             data = json.loads(data_str)
                             self.latest_data = data
+                            if self.on_reading:
+                                self.on_reading(data)
                         except json.JSONDecodeError:
-                            # If not JSON, store as raw string
                             self.latest_data = {"raw": data_str}
                     except UnicodeDecodeError:
-                        # If decoding fails, store as raw bytes
                         self.latest_data = {"raw_bytes": line.hex()}
-                
-                time.sleep(0.01)  # Small delay to prevent CPU spinning
-                
-            except serial.SerialException as e:
-                print(f"Serial read error: {e}")
+                time.sleep(0.01)
+            except serial.SerialException:
+                print("Serial connection lost")
                 self.is_connected = False
-                break
-            except Exception as e:
-                print(f"Unexpected error in read loop: {e}")
+                if not self.auto_reconnect:
+                    break
+            except (UnicodeDecodeError, json.JSONDecodeError, OSError) as e:
+                print(f"Read error: {e}")
                 time.sleep(0.1)
-    
+
     def get_latest_data(self) -> Optional[Dict]:
-        """Get the most recent data received from ESP32"""
+        """Get the most recent data received from ESP32."""
         return self.latest_data
-    
+
     def get_status(self) -> Dict:
-        """Get current connection status"""
+        """Get current connection status and port information."""
         return {
             "connected": self.is_connected,
             "port": self.port,
@@ -141,5 +172,4 @@ class ESP32SerialReader:
         }
 
 
-# Global instance
 esp32_reader = ESP32SerialReader()

@@ -1,46 +1,44 @@
+"""FastAPI application for DeskBuddy sensor monitoring."""
 import asyncio
-import logging
 import json
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import List, Dict, Any
+from typing import List
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from app.db.database import check_db_connection
-<<<<<<< HEAD
+
 from app.api import readings, serial
-=======
-from app.api import readings
-from app.serial_reader import read_loop
->>>>>>> 1c9d3e33955ef50b56532bb0458b2aa690686ba8
+from app.db.database import check_db_connection
+from app.db.persistence import save_reading_to_db
+from app.serial.serial_reader import esp32_reader
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 class ConnectionManager:
-    """Manages WebSocket connections and broadcasts"""
+    """Manages WebSocket connections for broadcasting sensor data."""
 
     def __init__(self):
+        """Initialize the connection manager."""
         self.active_connections: List[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
-        """Accept and register a new WebSocket connection"""
+        """Accept and register a new WebSocket connection."""
         await websocket.accept()
         self.active_connections.append(websocket)
-        logger.info("Client connected. Total: %d", len(self.active_connections))
+        logger.info("WebSocket client connected. Total: %d", len(self.active_connections))
 
     def disconnect(self, websocket: WebSocket):
-        """Remove a WebSocket connection"""
+        """Remove a WebSocket connection from active connections."""
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-            logger.info("Client disconnected. Total: %d", len(self.active_connections))
+            logger.info("WebSocket client disconnected. Total: %d", len(self.active_connections))
 
-    async def broadcast(self, data: Dict[str, Any]):
-        """
-        Broadcast data to all connected clients.
-        Non-blocking: failures to send don't crash the server.
-        """
+    async def broadcast(self, data: dict):
+        """Broadcast data to all connected WebSocket clients."""
         if not self.active_connections:
             return
 
@@ -50,48 +48,44 @@ class ConnectionManager:
         for connection in self.active_connections:
             try:
                 await connection.send_text(message)
-            except Exception as e:
+            except (RuntimeError, ConnectionError) as e:
                 logger.warning("Failed to send to client: %s", e)
                 disconnected.append(connection)
 
-        # Clean up disconnected clients
         for connection in disconnected:
             self.disconnect(connection)
 
 
-# Global connection manager
 manager = ConnectionManager()
+EVENT_LOOP = None  # pylint: disable=invalid-name
+
+
+def on_reading_callback(data: dict):
+    """Called when new reading arrives from ESP32"""
+    # Save to database (thread-safe)
+    try:
+        save_reading_to_db(data)
+    except (ValueError, RuntimeError) as e:
+        logger.error("Failed to save reading: %s", e)
+
+    # Broadcast via WebSocket (schedule on main event loop)
+    if EVENT_LOOP:
+        try:
+            asyncio.run_coroutine_threadsafe(manager.broadcast(data), EVENT_LOOP)
+        except RuntimeError as e:
+            logger.error("Failed to broadcast: %s", e)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     """Startup and shutdown events"""
-    # Startup: Start serial reader in background thread
-    logger.info("Starting serial reader thread...")
-
-    # Capture the main event loop
-    loop = asyncio.get_running_loop()
-
-    def broadcast_callback(reading):
-        """Callback to broadcast readings via WebSocket"""
-        try:
-            # Schedule broadcast in the main event loop from another thread
-            asyncio.run_coroutine_threadsafe(manager.broadcast(reading), loop)
-        except Exception as e:
-            logger.error("Broadcast error: %s", e)
-
-    import threading
-    serial_thread = threading.Thread(
-        target=lambda: read_loop(on_reading=broadcast_callback),
-        daemon=True
-    )
-    serial_thread.start()
-    logger.info("Serial reader started")
-
+    global EVENT_LOOP  # pylint: disable=global-statement
+    logger.info("Starting up...")
+    EVENT_LOOP = asyncio.get_running_loop()
+    esp32_reader.on_reading = on_reading_callback
     yield
-
-    # Shutdown
     logger.info("Shutting down...")
+    esp32_reader.disconnect()
 
 
 app = FastAPI(title="DeskBuddy API", lifespan=lifespan)
@@ -132,12 +126,7 @@ async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for live sensor data streaming"""
     await manager.connect(websocket)
     try:
-        # Keep connection alive
         while True:
-            # Wait for any message from client (keeps connection open)
             await websocket.receive_text()
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
-    except Exception as e:
-        logger.error("WebSocket error: %s", e)
         manager.disconnect(websocket)
