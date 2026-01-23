@@ -1,4 +1,4 @@
-"""Database persistence layer for sensor readings."""
+# saves sensor data to postgres
 from datetime import datetime, timezone
 from typing import Dict
 
@@ -9,21 +9,12 @@ from app.db.models import Reading
 
 
 def save_reading_to_db(data: Dict):
-    """
-    Save sensor reading to database.
-    Expects data format: {
-        "temp_c": 25.5,
-        "hum_pct": 60.2,
-        "distance_cm": 45.3,
-        "ts_ms": 1234567890  # optional device timestamp
-    }
-    """
+    # saves reading to db
     db = SessionLocal()
     try:
         ts = datetime.now(timezone.utc)
         device_ts_ms = data.get("ts_ms")
 
-        # Extract sensor readings
         sensors = {
             "temp_c": ("°C", data.get("temp_c")),
             "hum_pct": ("%", data.get("hum_pct")),

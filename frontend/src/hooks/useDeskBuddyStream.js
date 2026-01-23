@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
+// websocket hook for live sensor data
 export function useDeskBuddyStream(url) {
   const [data, setData] = useState({
     temp_c: null,

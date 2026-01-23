@@ -1,4 +1,4 @@
-"""FastAPI application for DeskBuddy sensor monitoring."""
+# main fastapi app
 import asyncio
 import json
 import logging
@@ -19,26 +19,23 @@ logger = logging.getLogger(__name__)
 
 
 class ConnectionManager:
-    """Manages WebSocket connections for broadcasting sensor data."""
+    # handles websocket connections
 
     def __init__(self):
-        """Initialize the connection manager."""
         self.active_connections: List[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
-        """Accept and register a new WebSocket connection."""
         await websocket.accept()
         self.active_connections.append(websocket)
         logger.info("WebSocket client connected. Total: %d", len(self.active_connections))
 
     def disconnect(self, websocket: WebSocket):
-        """Remove a WebSocket connection from active connections."""
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
             logger.info("WebSocket client disconnected. Total: %d", len(self.active_connections))
 
     async def broadcast(self, data: dict):
-        """Broadcast data to all connected WebSocket clients."""
+        # send data to all connected clients
         if not self.active_connections:
             return
 
@@ -57,18 +54,17 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
-EVENT_LOOP = None  # pylint: disable=invalid-name
+EVENT_LOOP = None  # yeah yeah i know globals are bad
 
 
 def on_reading_callback(data: dict):
-    """Called when new reading arrives from ESP32"""
-    # Save to database (thread-safe)
+    # gets called whenever ESP32 sends data
     try:
         save_reading_to_db(data)
     except (ValueError, RuntimeError) as e:
         logger.error("Failed to save reading: %s", e)
 
-    # Broadcast via WebSocket (schedule on main event loop)
+    # broadcast to websocket clients
     if EVENT_LOOP:
         try:
             asyncio.run_coroutine_threadsafe(manager.broadcast(data), EVENT_LOOP)
@@ -78,8 +74,8 @@ def on_reading_callback(data: dict):
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Startup and shutdown events"""
-    global EVENT_LOOP  # pylint: disable=global-statement
+    # startup/shutdown stuff
+    global EVENT_LOOP
     logger.info("Starting up...")
     EVENT_LOOP = asyncio.get_running_loop()
     esp32_reader.on_reading = on_reading_callback
@@ -90,11 +86,10 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="DeskBuddy API", lifespan=lifespan)
 
-# Include routers
 app.include_router(readings.router)
 app.include_router(serial.router)
 
-# Configure CORS for frontend
+# CORS for frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -106,7 +101,7 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
-    """Health check endpoint with database connectivity test"""
+    # check if everything is working
     db_ok = check_db_connection()
     return {
         "status": "ok",
@@ -117,13 +112,12 @@ async def health():
 
 @app.get("/")
 async def root():
-    """Root endpoint"""
     return {"message": "DeskBuddy API is running"}
 
 
 @app.websocket("/stream")
 async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for live sensor data streaming"""
+    # websocket for streaming sensor data
     await manager.connect(websocket)
     try:
         while True:

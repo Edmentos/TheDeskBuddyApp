@@ -26,7 +26,6 @@ function Dashboard() {
   const [serialError, setSerialError] = useState(null);
   const [connecting, setConnecting] = useState(false);
 
-  // WebSocket live data
   const { data: sensorData, status: wsStatus } = useDeskBuddyStream('ws://localhost:8000/stream');
 
   const formatValue = (value, unit, decimals = 1) =>
@@ -51,7 +50,6 @@ function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch available serial ports on mount
   useEffect(() => {
     async function fetchPorts() {
       try {
@@ -67,7 +65,6 @@ function Dashboard() {
     fetchPorts();
   }, []);
 
-  // Poll serial status and data
   useEffect(() => {
     async function fetchSerialStatus() {
       try {

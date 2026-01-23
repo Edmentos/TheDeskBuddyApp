@@ -1,4 +1,4 @@
-"""API endpoints for ESP32 serial communication."""
+# api routes for serial port stuff
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -8,15 +8,13 @@ router = APIRouter(prefix="/serial", tags=["serial"])
 
 
 class ConnectRequest(BaseModel):
-    """Request model for serial port connection."""
-
     port: str
     baudrate: int = 115200
 
 
 @router.get("/ports")
 async def list_ports():
-    """List all available serial ports"""
+    # get list of serial ports
     try:
         ports = esp32_reader.list_available_ports()
         return {"ports": ports}
@@ -29,7 +27,6 @@ async def list_ports():
 
 @router.post("/connect")
 async def connect(request: ConnectRequest):
-    """Connect to ESP32 on specified port"""
     success = esp32_reader.connect(request.port, request.baudrate)
     if success:
         return {
@@ -49,7 +46,7 @@ async def connect(request: ConnectRequest):
 
 @router.post("/auto-connect")
 async def auto_connect(baudrate: int = 115200):
-    """Automatically detect and connect to ESP32"""
+    # try to find ESP32 automatically
     esp32_port = esp32_reader.find_esp32_port()
     if not esp32_port:
         raise HTTPException(
@@ -73,7 +70,6 @@ async def auto_connect(baudrate: int = 115200):
 
 @router.post("/disconnect")
 async def disconnect():
-    """Disconnect from ESP32"""
     try:
         esp32_reader.disconnect()
         return {"status": "disconnected"}
@@ -86,13 +82,11 @@ async def disconnect():
 
 @router.get("/status")
 async def get_status():
-    """Get current ESP32 connection status"""
     return esp32_reader.get_status()
 
 
 @router.get("/data")
 async def get_data():
-    """Get latest data from ESP32"""
     data = esp32_reader.get_latest_data()
     status = esp32_reader.get_status()
 

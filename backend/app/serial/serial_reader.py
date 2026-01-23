@@ -1,4 +1,4 @@
-"""ESP32 serial communication module."""
+# reads data from ESP32 over serial
 import json
 import re
 import threading
@@ -10,7 +10,7 @@ import serial.tools.list_ports
 
 
 class ESP32SerialReader:
-    """Manages serial connection to ESP32 device with auto-reconnect."""
+    # handles serial stuff for ESP32
     def __init__(self, on_reading: Optional[Callable[[Dict], None]] = None):
         self.serial_connection: Optional[serial.Serial] = None
         self.port: Optional[str] = None
@@ -23,7 +23,6 @@ class ESP32SerialReader:
 
     @staticmethod
     def list_available_ports() -> List[Dict[str, str]]:
-        """List all available serial ports with descriptions."""
         return [
             {"port": p.device, "description": p.description, "hwid": p.hwid}
             for p in serial.tools.list_ports.comports()
@@ -31,7 +30,7 @@ class ESP32SerialReader:
 
     @staticmethod
     def find_esp32_port() -> Optional[str]:
-        """Auto-detect ESP32 by looking for common USB-to-serial chips."""
+        # tries to find ESP32 automatically
         esp32_identifiers = [
             'CP210', 'CH340', 'CH341', 'UART', 'USB-SERIAL', 'USB2.0-Serial'
         ]
@@ -48,7 +47,7 @@ class ESP32SerialReader:
         return None
 
     def auto_connect(self, baudrate: int = 115200) -> bool:
-        """Automatically find and connect to ESP32."""
+        # auto find and connect
         esp32_port = self.find_esp32_port()
         if esp32_port:
             return self.connect(esp32_port, baudrate)
@@ -61,7 +60,6 @@ class ESP32SerialReader:
         timeout: float = 2.0,
         auto_reconnect: bool = True
     ) -> bool:
-        """Connect to ESP32 on specified port with auto-reconnect support."""
         if self.is_connected:
             return True
 
@@ -88,7 +86,6 @@ class ESP32SerialReader:
             return False
 
     def disconnect(self):
-        """Disconnect from ESP32 and stop reading thread."""
         self.stop_reading = True
         self.is_connected = False
 
@@ -106,7 +103,7 @@ class ESP32SerialReader:
         self.latest_data = None
 
     def _read_loop(self):
-        """Background thread loop for reading serial data with auto-reconnect."""
+        # background thread that reads from serial port
         while not self.stop_reading:
             if not self.serial_connection or not self.serial_connection.is_open:
                 if self.auto_reconnect and self.port:
@@ -160,11 +157,9 @@ class ESP32SerialReader:
                 time.sleep(0.1)
 
     def get_latest_data(self) -> Optional[Dict]:
-        """Get the most recent data received from ESP32."""
         return self.latest_data
 
     def get_status(self) -> Dict:
-        """Get current connection status and port information."""
         return {
             "connected": self.is_connected,
             "port": self.port,

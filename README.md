@@ -5,145 +5,82 @@ A desk monitoring application that reads sensor data from ESP32 and displays it 
 ## Project Structure
 
 ```
-The_Desk_Buddy/
-├── backend/          # Python FastAPI backend
-│   ├── app/
-│   │   ├── api/          # API endpoints
-│   │   ├── config/       # Settings
-│   │   ├── db/           # Database models (PostgreSQL)
-│   │   ├── serial_reader.py  # ESP32 serial reader
-│   │   └── main.py       # FastAPI entry point
-│   ├── requirements.txt
-│   └── .env.example
-├── frontend/         # React + Vite frontend
-│   ├── src/
-│   │   ├── pages/    # Dashboard, History, Settings
-│   │   ├── services/ # API client
-│   │   └── ...
-│   └── package.json
-├── docker-compose.yml
-└── README.md
+backend/          - fastapi server
+  app/
+    api/          - endpoints
+    db/           - postgres models
+    serial/       - reads from ESP32
+    main.py       - main app file
+frontend/         - react app
+  src/
+    pages/        - dashboard, history, settings
+    services/     - api calls
 ```
 
-## Prerequisites
+## What you need
 
-- Python 3.10+
+- Python 3.10+ (i used 3.11)
 - Node.js 18+
-- Docker & Docker Compose
-- ESP32 device with CP210x or CH340 USB-to-serial chip
+- Docker
+- ESP32 with usb serial (CP210x or CH340)
 
-## Quick Start
+## How to run
 
-### 1. Start PostgreSQL Database
-
+### 1. Database
 ```bash
 docker-compose up -d
 ```
+runs postgres on localhost:5432 (user/pass/db all = deskbuddy)
 
-PostgreSQL will run on `localhost:5432` with:
-- Database: `deskbuddy`
-- User: `deskbuddy`
-- Password: `deskbuddy`
-
-### 2. Setup Backend
-
+### 2. Backend setup
 ```bash
 cd backend
-
-# Create virtual environment
 python -m venv .venv
-
-# Activate virtual environment
-# Windows:
-.venv\Scripts\activate
-# macOS/Linux:
-source .venv/bin/activate
-
-# Install dependencies
+.venv\Scripts\activate    # windows
+# source .venv/bin/activate  # mac/linux
 pip install -r requirements.txt
-
-# Setup environment
-copy .env.example .env  # Windows
-# cp .env.example .env  # macOS/Linux
 ```
 
-### 3. Run Backend
-
-**Option A: FastAPI + Serial Reader (Recommended)**
+### 3. Run backend
 ```bash
-# Terminal 1 - API Server
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-
-# Terminal 2 - Serial Reader (reads ESP32 data)
-python -m app.serial_reader
+uvicorn app.main:app --reload
 ```
+goes to http://127.0.0.1:8000
 
-**Option B: FastAPI only (no ESP32 data)**
-```bash
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
+check if its working: http://127.0.0.1:8000/health
 
-Backend API: `http://127.0.0.1:8000`  
-Health check: `http://127.0.0.1:8000/health`
-
-### 4. Start Frontend
-
+### 4. Frontend
 ```bash
 cd frontend
-
-# Install dependencies
 npm install
-
-# Start dev server
 npm run dev
 ```
+opens on http://localhost:5173
 
-Frontend: `http://localhost:5173`
+## Some notes
 
-## Development
+### Backend stuff
+- FastAPI
+- postgres + sqlalchemy
+- serial reader finds ESP32 automatically (looks for CP210x/CH340)
+- reads at 115200 baud
 
-### Backend
-
-- **Framework**: FastAPI
-- **Database**: PostgreSQL with SQLAlchemy
-- **Serial Reader**: Auto-detects ESP32 on CP210x/CH340, reads JSON sensor data at 115200 baud
-- **Health endpoint**: `GET /health` returns `{status, time_utc, db_ok}`
-
-### ESP32 Data Format
-
-The serial reader expects JSON lines from ESP32:
+ESP32 needs to send json like:
 ```json
 {"ts_ms":76336,"distance_cm":99.8,"temp_c":17.8,"hum_pct":59}
 ```
 
-Lines can have timestamp prefixes (e.g., `17:09:47.625 -> {...}`), which are automatically stripped.
-
 ### Frontend
+- react + vite
+- has dashboard, history, settings pages (history & settings not done yet lol)
+- calls backend at http://127.0.0.1:8000
 
-- **Framework**: React 18 with Vite
-- **Routing**: react-router-dom
-- **Pages**: 
-  - Dashboard: Shows backend health status
-  - History: View sensor data
-  - Settings: Configuration
-- **API Service**: Configured to call backend at `http://127.0.0.1:8000`
+### Database stuff
+stop db: `docker-compose down`
+reset db (deletes everything): `docker-compose down -v`
 
-### Database Management
-
-Stop database:
-```bash
-docker-compose down
-```
-
-Reset database (deletes all data):
-```bash
-docker-compose down -v
-```
-
-### Serial Reader Features
-
-- Auto-detects ESP32 USB port (CP210x/CH340/ESP32 keywords)
-- Auto-reconnects every 2s if disconnected
-- Handles malformed JSON gracefully
-- Persists readings to PostgreSQL (distance, temperature, humidity)
-- Logs all readings to console
+### Features
+- auto finds ESP32 port
+- reconnects if it disconnects
+- saves to postgres
+- websocket for live updates
