@@ -1,4 +1,4 @@
-# saves sensor data to postgres
+"""save readings from ESP32 to postgres"""
 from datetime import datetime, timezone
 from typing import Dict
 
@@ -9,7 +9,8 @@ from app.db.models import Reading
 
 
 def save_reading_to_db(data: Dict):
-    # saves reading to db
+    """save sensor reading to database"""
+    # write sensor data to db
     db = SessionLocal()
     try:
         ts = datetime.now(timezone.utc)

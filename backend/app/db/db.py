@@ -1,10 +1,10 @@
-"""Database connection and session management"""
+"""DB connection stuff and session management"""
 from typing import Generator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from app.config.settings import settings
 
-# Create engine
+# setup db engine
 engine = create_engine(
     settings.database_url,
     echo=False,
@@ -13,12 +13,12 @@ engine = create_engine(
     max_overflow=10
 )
 
-# Create session
+# session maker
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def get_db() -> Generator[Session, None, None]:
-    """Dependency to get database session"""
+    """dependency for getting db session"""
     db = SessionLocal()
     try:
         yield db

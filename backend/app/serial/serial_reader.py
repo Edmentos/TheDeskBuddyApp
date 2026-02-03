@@ -1,4 +1,4 @@
-# reads data from ESP32 over serial
+"""reads data from ESP32 over serial"""
 import json
 import re
 import threading
@@ -10,8 +10,10 @@ import serial.tools.list_ports
 
 
 class ESP32SerialReader:
-    # handles serial stuff for ESP32
+    """handles serial communication with ESP32"""
+
     def __init__(self, on_reading: Optional[Callable[[Dict], None]] = None):
+        """init serial reader with optional callback"""
         self.serial_connection: Optional[serial.Serial] = None
         self.port: Optional[str] = None
         self.is_connected: bool = False
@@ -23,6 +25,7 @@ class ESP32SerialReader:
 
     @staticmethod
     def list_available_ports() -> List[Dict[str, str]]:
+        """get list of all available serial ports"""
         return [
             {"port": p.device, "description": p.description, "hwid": p.hwid}
             for p in serial.tools.list_ports.comports()
@@ -30,6 +33,7 @@ class ESP32SerialReader:
 
     @staticmethod
     def find_esp32_port() -> Optional[str]:
+        """auto-detect ESP32 device port"""
         # tries to find ESP32 automatically
         esp32_identifiers = [
             'CP210', 'CH340', 'CH341', 'UART', 'USB-SERIAL', 'USB2.0-Serial'
@@ -47,6 +51,7 @@ class ESP32SerialReader:
         return None
 
     def auto_connect(self, baudrate: int = 115200) -> bool:
+        """auto-detect and connect to ESP32"""
         # auto find and connect
         esp32_port = self.find_esp32_port()
         if esp32_port:
@@ -60,6 +65,7 @@ class ESP32SerialReader:
         timeout: float = 2.0,
         auto_reconnect: bool = True
     ) -> bool:
+        """connect to serial port with given settings"""
         if self.is_connected:
             return True
 
@@ -86,6 +92,7 @@ class ESP32SerialReader:
             return False
 
     def disconnect(self):
+        """disconnect from serial port"""
         self.stop_reading = True
         self.is_connected = False
 
@@ -103,6 +110,7 @@ class ESP32SerialReader:
         self.latest_data = None
 
     def _read_loop(self):
+        """background thread for reading serial data"""
         # background thread that reads from serial port
         while not self.stop_reading:
             if not self.serial_connection or not self.serial_connection.is_open:
@@ -126,8 +134,8 @@ class ESP32SerialReader:
                     line = self.serial_connection.readline()
                     try:
                         data_str = line.decode('utf-8').strip()
-                        # Strip Arduino Serial Monitor timestamp
-                        # (e.g., "17:09:47.625 -> ")
+                        # arduino IDE adds timestamps, strip them
+                        # ex: "17:09:47.625 -> "
                         data_str = re.sub(
                             r'^\d{2}:\d{2}:\d{2}\.\d{3}\s*->\s*',
                             '',
@@ -157,9 +165,11 @@ class ESP32SerialReader:
                 time.sleep(0.1)
 
     def get_latest_data(self) -> Optional[Dict]:
+        """get most recent sensor data"""
         return self.latest_data
 
     def get_status(self) -> Dict:
+        """get connection status info"""
         return {
             "connected": self.is_connected,
             "port": self.port,

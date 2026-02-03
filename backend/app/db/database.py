@@ -4,7 +4,7 @@ from app.db.db import engine
 
 
 def check_db_connection() -> bool:
-    """Check if database connection is working"""
+    """test if we can actually connect to postgres"""
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
