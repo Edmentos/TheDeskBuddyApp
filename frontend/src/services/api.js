@@ -102,3 +102,29 @@ export async function getSerialData() {
     throw error;
   }
 }
+
+export async function querySensorReadings(sensorName, startTime, endTime, page = 1, pageSize = 100) {
+  try {
+    const params = new URLSearchParams({
+      sensor_name: sensorName,
+      page: page.toString(),
+      page_size: pageSize.toString()
+    });
+
+    if (startTime) {
+      params.append('start_time', startTime);
+    }
+    if (endTime) {
+      params.append('end_time', endTime);
+    }
+
+    const response = await fetch(`${API_BASE_URL}/readings/query?${params}`);
+    if (!response.ok) {
+      throw new Error('Failed to query sensor readings');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error querying sensor readings:', error);
+    throw error;
+  }
+}

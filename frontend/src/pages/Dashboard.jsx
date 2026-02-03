@@ -19,7 +19,7 @@ function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Serial connection state
+  // track serial port state
   const [ports, setPorts] = useState([]);
   const [selectedPort, setSelectedPort] = useState('');
   const [serialStatus, setSerialStatus] = useState({ connected: false, port: null });

@@ -1,4 +1,4 @@
-"""Database models for sensor readings."""
+"""SQLAlchemy models for the readings table"""
 from sqlalchemy import Column, Integer, String, Float, DateTime, Index
 from sqlalchemy.orm import declarative_base
 
@@ -6,7 +6,7 @@ Base = declarative_base()
 
 
 class Reading(Base):
-    """Sensor reading model"""
+    """table for storing sensor data"""
     __tablename__ = "readings"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -17,5 +17,10 @@ class Reading(Base):
     device_ts_ms = Column(Integer, nullable=True)
 
     __table_args__ = (
+        # index for time + sensor queries
         Index('ix_readings_ts_sensor', 'ts', 'sensor'),
+        # sensor first, then time (better for our queries)
+        Index('ix_readings_sensor_ts', 'sensor', 'ts'),
+        # desc order index for newest-first queries
+        Index('ix_readings_sensor_ts_desc', 'sensor', ts.desc()),
     )
