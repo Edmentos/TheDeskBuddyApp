@@ -9,7 +9,7 @@ from typing import List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import readings, serial
+from app.api import readings, serial, settings
 from app.db.database import check_db_connection
 from app.db.persistence import save_reading_to_db
 from app.serial.serial_reader import esp32_reader
@@ -94,6 +94,7 @@ app = FastAPI(title="DeskBuddy API", lifespan=lifespan)
 
 app.include_router(readings.router)
 app.include_router(serial.router)
+app.include_router(settings.router)
 
 # allow frontend to hit our api
 app.add_middleware(

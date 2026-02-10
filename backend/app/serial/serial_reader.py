@@ -8,6 +8,8 @@ from typing import Callable, Dict, List, Optional
 import serial
 import serial.tools.list_ports
 
+from app.posture import get_posture_tracker
+
 
 class ESP32SerialReader:
     """handles serial communication with ESP32"""
@@ -147,6 +149,14 @@ class ESP32SerialReader:
 
                         try:
                             data = json.loads(data_str)
+
+                            # add posture state to the data
+                            if 'distance_cm' in data:
+                                tracker = get_posture_tracker()
+                                posture = tracker.process_distance(data['distance_cm'])
+                                data['posture'] = posture
+                                data['smoothed_distance_cm'] = tracker.get_smoothed_distance()
+
                             self.latest_data = data
                             if self.on_reading:
                                 self.on_reading(data)

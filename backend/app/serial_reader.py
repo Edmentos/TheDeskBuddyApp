@@ -9,6 +9,7 @@ import serial
 import serial.tools.list_ports
 from app.db.db import SessionLocal
 from app.db.models import Reading
+from app.posture import get_posture_tracker
 
 logging.basicConfig(
     level=logging.INFO,
@@ -80,9 +81,16 @@ def read_loop(
                 reading = parse_line_to_reading(line)
 
                 if reading:
+                    # check posture from distance
+                    tracker = get_posture_tracker()
+                    posture = tracker.process_distance(reading['distance_cm'])
+                    smoothed_distance = tracker.get_smoothed_distance()
+
                     logger.info(
-                        "%scm | %s°C | %s%%",
+                        "%scm (smoothed: %.1fcm) | %s | %s°C | %s%%",
                         f"{reading['distance_cm']:.1f}",
+                        smoothed_distance,
+                        posture,
                         f"{reading['temp_c']:.1f}",
                         f"{reading['hum_pct']:.0f}"
                     )
@@ -109,6 +117,12 @@ def read_loop(
                                 sensor='humidity',
                                 value=reading['hum_pct'],
                                 unit='percent'
+                            ),
+                            Reading(
+                                ts=ts,
+                                sensor='posture',
+                                value=1.0 if posture == 'standing' else 0.0,
+                                unit=posture
                             )
                         ])
                         db.commit()
