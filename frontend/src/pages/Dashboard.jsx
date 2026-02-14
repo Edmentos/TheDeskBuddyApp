@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getHealth, listSerialPorts, connectToSerial, autoConnectToSerial, disconnectFromSerial, getSerialStatus, getSerialData } from '../services/api';
+import { getHealth, listSerialPorts, connectToSerial, autoConnectToSerial, disconnectFromSerial, getSerialStatus, getSerialData, getCurrentPosture, getPostureStats } from '../services/api';
 import { useDeskBuddyStream } from '../hooks/useDeskBuddyStream';
 
 const STATUS_MAP = {
@@ -26,6 +26,10 @@ function Dashboard() {
   const [serialError, setSerialError] = useState(null);
   const [connecting, setConnecting] = useState(false);
 
+  // posture tracking
+  const [postureState, setPostureState] = useState(null);
+  const [postureStats, setPostureStats] = useState(null);
+
   const { data: sensorData, status: wsStatus } = useDeskBuddyStream('ws://localhost:8000/stream');
 
   const formatValue = (value, unit, decimals = 1) =>
@@ -47,6 +51,36 @@ function Dashboard() {
 
     fetchHealth();
     const interval = setInterval(fetchHealth, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    async function fetchPosture() {
+      try {
+        const data = await getCurrentPosture();
+        setPostureState(data);
+      } catch (err) {
+        console.error('Failed to fetch posture:', err);
+      }
+    }
+
+    fetchPosture();
+    const interval = setInterval(fetchPosture, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    async function fetchStats() {
+      try {
+        const data = await getPostureStats();
+        setPostureStats(data);
+      } catch (err) {
+        console.error('Failed to fetch stats:', err);
+      }
+    }
+
+    fetchStats();
+    const interval = setInterval(fetchStats, 30000);  // update every 30sec
     return () => clearInterval(interval);
   }, []);
 
@@ -163,6 +197,61 @@ function Dashboard() {
           </div>
         ))}
       </div>
+
+      {postureState && (
+        <div className="card">
+          <h2>Current Posture</h2>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '20px',
+            fontSize: '18px'
+          }}>
+            <div style={{
+              fontSize: '48px',
+              padding: '20px',
+              backgroundColor: postureState.current_state === 'standing' ? '#e3f2fd' : '#fff3e0',
+              borderRadius: '10px'
+            }}>
+              {postureState.current_state === 'standing' ? '🧍' : '🪑'}
+            </div>
+            <div>
+              <p style={{ fontWeight: 'bold', fontSize: '24px', margin: '0' }}>
+                {postureState.current_state?.toUpperCase() || 'UNKNOWN'}
+              </p>
+              <p style={{ color: '#666', margin: '5px 0 0 0' }}>
+                Distance: {postureState.smoothed_distance_cm?.toFixed(1) || '--'}cm
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {postureStats && (
+        <div className="card">
+          <h2>Today's Activity</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+            <div>
+              <p style={{ color: '#666', margin: '0 0 5px 0' }}>Sitting Time</p>
+              <p style={{ fontSize: '24px', fontWeight: 'bold', margin: '0', color: '#ff9800' }}>
+                {postureStats.sitting_hours?.toFixed(1) || '0'}h
+              </p>
+              <p style={{ color: '#666', fontSize: '14px', margin: '5px 0 0 0' }}>
+                {postureStats.sitting_percentage?.toFixed(0) || '0'}%
+              </p>
+            </div>
+            <div>
+              <p style={{ color: '#666', margin: '0 0 5px 0' }}>Standing Time</p>
+              <p style={{ fontSize: '24px', fontWeight: 'bold', margin: '0', color: '#4caf50' }}>
+                {postureStats.standing_hours?.toFixed(1) || '0'}h
+              </p>
+              <p style={{ color: '#666', fontSize: '14px', margin: '5px 0 0 0' }}>
+                {postureStats.standing_percentage?.toFixed(0) || '0'}%
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <h2>Backend Status</h2>
