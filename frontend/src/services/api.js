@@ -128,3 +128,105 @@ export async function querySensorReadings(sensorName, startTime, endTime, page =
     throw error;
   }
 }
+
+export async function recordSittingHeight() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/settings/calibrate/record-sitting`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Failed to record sitting height');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error recording sitting height:', error);
+    throw error;
+  }
+}
+
+export async function recordStandingHeight() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/settings/calibrate/record-standing`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Failed to record standing height');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error recording standing height:', error);
+    throw error;
+  }
+}
+
+export async function saveCalibration(sittingHeight, standingHeight) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/settings/calibrate/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sitting_height_cm: sittingHeight,
+        standing_height_cm: standingHeight,
+      }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Failed to save calibration');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error saving calibration:', error);
+    throw error;
+  }
+}
+
+export async function getCurrentCalibration() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/settings/calibrate/current`);
+    if (!response.ok) {
+      throw new Error('Failed to get current calibration');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error getting current calibration:', error);
+    throw error;
+  }
+}
+
+export async function getPostureStats(startTime, endTime) {
+  try {
+    const params = new URLSearchParams();
+    if (startTime) {
+      params.append('start_time', startTime);
+    }
+    if (endTime) {
+      params.append('end_time', endTime);
+    }
+
+    const response = await fetch(`${API_BASE_URL}/readings/posture/stats?${params}`);
+    if (!response.ok) {
+      throw new Error('Failed to get posture stats');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error getting posture stats:', error);
+    throw error;
+  }
+}
+
+export async function getCurrentPosture() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/readings/posture/current`);
+    if (!response.ok) {
+      throw new Error('Failed to get current posture');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error getting current posture:', error);
+    throw error;
+  }
+}

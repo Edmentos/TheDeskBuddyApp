@@ -10,6 +10,7 @@ import serial.tools.list_ports
 from app.db.db import SessionLocal
 from app.db.models import Reading
 from app.posture import get_posture_tracker
+from app.posture_events import get_event_logger
 
 logging.basicConfig(
     level=logging.INFO,
@@ -61,6 +62,10 @@ def read_loop(
         reconnect_delay: float = 2.0) -> None:
     """Read loop with auto-reconnect, parse JSON, persist to DB"""
     logger.info("Starting serial reader...")
+
+    # setup posture tracker with event logging
+    event_logger = get_event_logger()
+    tracker = get_posture_tracker(on_state_change=event_logger.on_state_change)
 
     while True:
         ser = None

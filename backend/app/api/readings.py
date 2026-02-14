@@ -8,7 +8,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from app.db.db import get_db
-from app.db.models import Reading
+from app.db.models import Reading, PostureEvent
+from app.posture import get_posture_tracker
 
 router = APIRouter(prefix="/readings", tags=["readings"])
 
@@ -129,3 +130,66 @@ async def export_to_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+
+@router.get("/posture/stats")
+async def get_posture_stats(
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    get sitting/standing time stats for date range
+    """
+    # default to today if no dates provided
+    if not start_date:
+        start_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    if not end_date:
+        end_date = datetime.now()
+
+    # query posture events in range
+    events = db.query(PostureEvent).filter(
+        and_(
+            PostureEvent.start_time >= start_date,
+            PostureEvent.start_time <= end_date
+        )
+    ).all()
+
+    sitting_time = 0.0
+    standing_time = 0.0
+
+    for event in events:
+        if event.duration_seconds:
+            if event.posture == "sitting":
+                sitting_time += event.duration_seconds
+            elif event.posture == "standing":
+                standing_time += event.duration_seconds
+
+    total_time = sitting_time + standing_time
+
+    # calculate percentages
+    sitting_pct = (sitting_time / total_time * 100) if total_time > 0 else 0
+    standing_pct = (standing_time / total_time * 100) if total_time > 0 else 0
+
+    return {
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "sitting_seconds": sitting_time,
+        "standing_seconds": standing_time,
+        "sitting_hours": sitting_time / 3600,
+        "standing_hours": standing_time / 3600,
+        "sitting_percentage": round(sitting_pct, 1),
+        "standing_percentage": round(standing_pct, 1),
+        "total_tracked_seconds": total_time
+    }
+
+
+@router.get("/posture/current")
+async def get_current_posture():
+    """get current posture state"""
+    tracker = get_posture_tracker()
+    return {
+        "current_state": tracker.current_state,
+        "smoothed_distance_cm": tracker.get_smoothed_distance(),
+        "candidate_state": tracker.candidate_state
+    }

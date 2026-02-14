@@ -9,6 +9,7 @@ import serial
 import serial.tools.list_ports
 
 from app.posture import get_posture_tracker
+from app.posture_events import get_event_logger
 
 
 class ESP32SerialReader:
@@ -24,6 +25,10 @@ class ESP32SerialReader:
         self.stop_reading: bool = False
         self.on_reading = on_reading
         self.auto_reconnect = False
+
+        # setup posture tracking with event logging
+        event_logger = get_event_logger()
+        self.posture_tracker = get_posture_tracker(on_state_change=event_logger.on_state_change)
 
     @staticmethod
     def list_available_ports() -> List[Dict[str, str]]:
@@ -152,10 +157,13 @@ class ESP32SerialReader:
 
                             # add posture state to the data
                             if 'distance_cm' in data:
-                                tracker = get_posture_tracker()
-                                posture = tracker.process_distance(data['distance_cm'])
+                                distance = data['distance_cm']
+                                posture = self.posture_tracker.process_distance(
+                                    distance
+                                )
                                 data['posture'] = posture
-                                data['smoothed_distance_cm'] = tracker.get_smoothed_distance()
+                                smoothed = self.posture_tracker.get_smoothed_distance()
+                                data['smoothed_distance_cm'] = smoothed
 
                             self.latest_data = data
                             if self.on_reading:

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { recordSittingHeight, recordStandingHeight, saveCalibration as saveCalibrationAPI } from '../services/api';
 
 function Settings() {
   const [sittingHeight, setSittingHeight] = useState(80);
@@ -6,6 +7,12 @@ function Settings() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [currentState, setCurrentState] = useState('');
+
+  // calibration mode
+  const [calibMode, setCalibMode] = useState(false);
+  const [calibSitting, setCalibSitting] = useState(null);
+  const [calibStanding, setCalibStanding] = useState(null);
+  const [calibMessage, setCalibMessage] = useState('');
 
   // Load current settings on mount
   useEffect(() => {
@@ -27,7 +34,7 @@ function Settings() {
   const handleSave = async () => {
     setLoading(true);
     setMessage('');
-    
+
     try {
       const response = await fetch('http://localhost:8000/settings/posture', {
         method: 'PUT',
@@ -49,6 +56,49 @@ function Settings() {
       }
     } catch (error) {
       setMessage('Error saving settings: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const recordSitting = async () => {
+    setCalibMessage('');
+    try {
+      const data = await recordSittingHeight();
+      setCalibSitting(data.sitting_height_cm);
+      setCalibMessage(`Sitting position recorded: ${data.sitting_height_cm.toFixed(1)}cm`);
+    } catch (error) {
+      setCalibMessage('Error: ' + error.message);
+    }
+  };
+
+  const recordStanding = async () => {
+    setCalibMessage('');
+    try {
+      const data = await recordStandingHeight();
+      setCalibStanding(data.standing_height_cm);
+      setCalibMessage(`Standing position recorded: ${data.standing_height_cm.toFixed(1)}cm`);
+    } catch (error) {
+      setCalibMessage('Error: ' + error.message);
+    }
+  };
+
+  const saveCalibration = async () => {
+    if (!calibSitting || !calibStanding) {
+      setCalibMessage('Please record both sitting and standing heights first');
+      return;
+    }
+
+    setLoading(true);
+    setCalibMessage('');
+
+    try {
+      const data = await saveCalibrationAPI(calibSitting, calibStanding);
+      setCalibMessage(`Calibration saved! Threshold: ${data.threshold.toFixed(1)}cm`);
+      setCalibMode(false);
+      await fetchSettings();
+    } catch (error) {
+      setCalibMessage('Error: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -170,6 +220,129 @@ function Settings() {
             fontSize: '14px'
           }}>
             {message}
+          </div>
+        )}
+      </div>
+
+      <div className="card" style={{ maxWidth: '600px', marginTop: '20px' }}>
+        <h2>Automatic Calibration</h2>
+        <p style={{ color: '#666', fontSize: '14px', marginBottom: '15px' }}>
+          For best results, automatically capture your desk heights
+        </p>
+
+        {!calibMode ? (
+          <button
+            onClick={() => setCalibMode(true)}
+            style={{
+              padding: '10px 20px',
+              fontSize: '16px',
+              backgroundColor: '#28a745',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            Start Calibration
+          </button>
+        ) : (
+          <div>
+            <div style={{ marginBottom: '15px' }}>
+              <p style={{ fontWeight: 'bold', marginBottom: '10px' }}>
+                Step 1: Sit at your desk
+              </p>
+              <button
+                onClick={recordSitting}
+                disabled={loading}
+                style={{
+                  padding: '10px 20px',
+                  fontSize: '14px',
+                  backgroundColor: calibSitting ? '#6c757d' : '#007bff',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  marginRight: '10px'
+                }}
+              >
+                {calibSitting ? `✓ Recorded: ${calibSitting.toFixed(1)}cm` : 'Record Sitting Height'}
+              </button>
+            </div>
+
+            <div style={{ marginBottom: '15px' }}>
+              <p style={{ fontWeight: 'bold', marginBottom: '10px' }}>
+                Step 2: Raise desk to standing
+              </p>
+              <button
+                onClick={recordStanding}
+                disabled={loading}
+                style={{
+                  padding: '10px 20px',
+                  fontSize: '14px',
+                  backgroundColor: calibStanding ? '#6c757d' : '#007bff',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  marginRight: '10px'
+                }}
+              >
+                {calibStanding ? `✓ Recorded: ${calibStanding.toFixed(1)}cm` : 'Record Standing Height'}
+              </button>
+            </div>
+
+            <div>
+              <button
+                onClick={saveCalibration}
+                disabled={loading || !calibSitting || !calibStanding}
+                style={{
+                  padding: '10px 20px',
+                  fontSize: '16px',
+                  fontWeight: 'bold',
+                  backgroundColor: '#28a745',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: (loading || !calibSitting || !calibStanding) ? 'not-allowed' : 'pointer',
+                  opacity: (loading || !calibSitting || !calibStanding) ? 0.6 : 1,
+                  marginRight: '10px'
+                }}
+              >
+                {loading ? 'Saving...' : 'Save Calibration'}
+              </button>
+              <button
+                onClick={() => {
+                  setCalibMode(false);
+                  setCalibSitting(null);
+                  setCalibStanding(null);
+                  setCalibMessage('');
+                }}
+                style={{
+                  padding: '10px 20px',
+                  fontSize: '16px',
+                  backgroundColor: '#6c757d',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+
+            {calibMessage && (
+              <div style={{
+                marginTop: '15px',
+                padding: '10px',
+                backgroundColor: calibMessage.includes('Error') ? '#f8d7da' : '#d4edda',
+                color: calibMessage.includes('Error') ? '#721c24' : '#155724',
+                borderRadius: '4px',
+                fontSize: '14px'
+              }}>
+                {calibMessage}
+              </div>
+            )}
           </div>
         )}
       </div>
