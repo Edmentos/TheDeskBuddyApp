@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { recordSittingHeight, recordStandingHeight, saveCalibration as saveCalibrationAPI } from '../services/api';
+import { recordSittingHeight, recordStandingHeight, saveCalibration as saveCalibrationAPI, getNoiseThresholds, updateNoiseThresholds } from '../services/api';
 
 function Settings() {
   const [sittingHeight, setSittingHeight] = useState(80);
@@ -14,9 +14,14 @@ function Settings() {
   const [calibStanding, setCalibStanding] = useState(null);
   const [calibMessage, setCalibMessage] = useState('');
 
+  // noise thresholds
+  const [noiseThresholds, setNoiseThresholds] = useState({ quiet: 50, normal: 60, loud: 70 });
+  const [noiseMessage, setNoiseMessage] = useState('');
+
   // Load current settings on mount
   useEffect(() => {
     fetchSettings();
+    getNoiseThresholds().then(setNoiseThresholds).catch(console.error);
   }, []);
 
   const fetchSettings = async () => {
@@ -99,6 +104,19 @@ function Settings() {
       await fetchSettings();
     } catch (error) {
       setCalibMessage('Error: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveNoiseSettings = async () => {
+    setLoading(true);
+    setNoiseMessage('');
+    try {
+      await updateNoiseThresholds(noiseThresholds);
+      setNoiseMessage('Noise thresholds saved!');
+    } catch (error) {
+      setNoiseMessage('Error: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -343,6 +361,75 @@ function Settings() {
                 {calibMessage}
               </div>
             )}
+          </div>
+        )}
+      </div>
+
+      <div className="card" style={{ maxWidth: '600px', marginTop: '20px' }}>
+        <h2>Noise Level Thresholds</h2>
+        <p style={{ color: '#666', fontSize: '14px', marginBottom: '20px' }}>
+          Set dB levels for noise classification (Quiet, Normal, Moderate, Loud).
+        </p>
+
+        <div style={{ display: 'grid', gap: '15px' }}>
+          <div>
+            <label style={{ fontWeight: 'bold' }}>Quiet (below dB)</label>
+            <input
+              type="number"
+              value={noiseThresholds.quiet}
+              onChange={(e) => setNoiseThresholds({...noiseThresholds, quiet: parseFloat(e.target.value)})}
+              style={{ width: '100%', padding: '8px', fontSize: '16px', border: '1px solid #ccc', borderRadius: '4px' }}
+            />
+          </div>
+          <div>
+            <label style={{ fontWeight: 'bold' }}>Normal (below dB)</label>
+            <input
+              type="number"
+              value={noiseThresholds.normal}
+              onChange={(e) => setNoiseThresholds({...noiseThresholds, normal: parseFloat(e.target.value)})}
+              style={{ width: '100%', padding: '8px', fontSize: '16px', border: '1px solid #ccc', borderRadius: '4px' }}
+            />
+          </div>
+          <div>
+            <label style={{ fontWeight: 'bold' }}>Loud (above dB)</label>
+            <input
+              type="number"
+              value={noiseThresholds.loud}
+              onChange={(e) => setNoiseThresholds({...noiseThresholds, loud: parseFloat(e.target.value)})}
+              style={{ width: '100%', padding: '8px', fontSize: '16px', border: '1px solid #ccc', borderRadius: '4px' }}
+            />
+          </div>
+        </div>
+
+        <button
+          onClick={saveNoiseSettings}
+          disabled={loading}
+          style={{
+            width: '100%',
+            padding: '12px',
+            marginTop: '20px',
+            fontSize: '16px',
+            fontWeight: 'bold',
+            backgroundColor: '#2196f3',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: loading ? 'not-allowed' : 'pointer',
+            opacity: loading ? 0.6 : 1
+          }}
+        >
+          {loading ? 'Saving...' : 'Save Noise Settings'}
+        </button>
+
+        {noiseMessage && (
+          <div style={{
+            marginTop: '15px',
+            padding: '10px',
+            backgroundColor: noiseMessage.includes('Error') ? '#f8d7da' : '#d4edda',
+            color: noiseMessage.includes('Error') ? '#721c24' : '#155724',
+            borderRadius: '4px'
+          }}>
+            {noiseMessage}
           </div>
         )}
       </div>

@@ -1,5 +1,6 @@
 """settings endpoints for configuring posture detection"""
 from datetime import datetime, timezone
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -147,3 +148,37 @@ async def get_current_calibration(db: Session = Depends(get_db)):
         "standing_height_cm": cal.standing_height_cm,
         "created_at": cal.created_at.isoformat()
     }
+
+
+# In-memory storage for noise thresholds (simple approach)
+_noise_thresholds = {
+    "quiet": 50.0,    # Below this = quiet
+    "normal": 60.0,   # Below this = normal
+    "loud": 70.0      # Above this = loud, else moderate
+}
+
+
+class NoiseThresholds(BaseModel):
+    """Noise level thresholds in dB."""
+    quiet: Optional[float] = Field(50.0, ge=30, le=120)
+    normal: Optional[float] = Field(60.0, ge=30, le=120)
+    loud: Optional[float] = Field(70.0, ge=30, le=120)
+
+
+@router.get("/noise-thresholds")
+async def get_noise_thresholds():
+    """Get current noise threshold settings."""
+    return _noise_thresholds
+
+
+@router.put("/noise-thresholds")
+async def update_noise_thresholds(thresholds: NoiseThresholds):
+    """Update noise threshold settings."""
+    if thresholds.quiet:
+        _noise_thresholds["quiet"] = thresholds.quiet
+    if thresholds.normal:
+        _noise_thresholds["normal"] = thresholds.normal
+    if thresholds.loud:
+        _noise_thresholds["loud"] = thresholds.loud
+
+    return {"status": "updated", **_noise_thresholds}

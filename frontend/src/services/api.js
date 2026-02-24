@@ -230,3 +230,19 @@ export async function getCurrentPosture() {
     throw error;
   }
 }
+
+export async function getNoiseThresholds() {
+  const response = await fetch(`${API_BASE_URL}/settings/noise-thresholds`);
+  if (!response.ok) throw new Error('Failed to get noise thresholds');
+  return await response.json();
+}
+
+export async function updateNoiseThresholds(thresholds) {
+  const response = await fetch(`${API_BASE_URL}/settings/noise-thresholds`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(thresholds),
+  });
+  if (!response.ok) throw new Error('Failed to update noise thresholds');
+  return await response.json();
+}

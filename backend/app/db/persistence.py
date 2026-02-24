@@ -1,4 +1,4 @@
-"""save readings from ESP32 to postgres"""
+"""save readings from ESP32 and audio worker to postgres"""
 from datetime import datetime, timezone
 from typing import Dict
 
@@ -36,6 +36,29 @@ def save_reading_to_db(data: Dict):
         db.commit()
     except (SQLAlchemyError, ValueError) as e:
         print(f"Database error: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def save_noise_reading_to_db(smoothed_db: float):
+    """save noise reading from audio worker to database"""
+    db = SessionLocal()
+    try:
+        ts = datetime.now(timezone.utc)
+
+        # Store smoothed dB as the main value (less noisy)
+        reading = Reading(
+            ts=ts,
+            sensor="noise_db",
+            value=float(smoothed_db),
+            unit="dB",
+            device_ts_ms=None  # audio readings are local, no device timestamp
+        )
+        db.add(reading)
+        db.commit()
+    except (SQLAlchemyError, ValueError) as e:
+        print(f"Failed to save noise reading: {e}")
         db.rollback()
     finally:
         db.close()
