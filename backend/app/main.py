@@ -1,17 +1,18 @@
-# main fastapi app
+"""Main FastAPI app for DeskBuddy."""
 import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import readings, serial, settings
+from app.audio_worker import AudioWorker, NoiseLevel
 from app.db.database import check_db_connection
-from app.db.persistence import save_reading_to_db
+from app.db.persistence import save_reading_to_db, save_noise_reading_to_db
 from app.serial.serial_reader import esp32_reader
 
 logging.basicConfig(level=logging.INFO)
@@ -19,27 +20,25 @@ logger = logging.getLogger(__name__)
 
 
 class ConnectionManager:
-    """manages websocket connections for live data streaming"""
+    """Manages websocket connections for live data streaming."""
 
     def __init__(self):
-        """init connection manager"""
         self.active_connections: List[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
-        """accept new websocket connection"""
+        """Accept and add new websocket connection."""
         await websocket.accept()
         self.active_connections.append(websocket)
-        logger.info("WebSocket client connected. Total: %d", len(self.active_connections))
+        logger.info("WebSocket connected. Total: %d", len(self.active_connections))
 
     def disconnect(self, websocket: WebSocket):
-        """remove websocket from active connections"""
+        """Remove websocket from active connections."""
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-            logger.info("WebSocket client disconnected. Total: %d", len(self.active_connections))
+            logger.info("WebSocket disconnected. Total: %d", len(self.active_connections))
 
     async def broadcast(self, data: dict):
-        """send data to all connected clients"""
-        # push to everyone who's connected
+        """Send data to all connected clients."""
         if not self.active_connections:
             return
 
@@ -50,44 +49,85 @@ class ConnectionManager:
             try:
                 await connection.send_text(message)
             except (RuntimeError, ConnectionError) as e:
-                logger.warning("Failed to send to client: %s", e)
+                logger.warning("Send failed: %s", e)
                 disconnected.append(connection)
 
         for connection in disconnected:
             self.disconnect(connection)
 
 
+# Module-level state
 manager = ConnectionManager()
-_event_loop = None
+
+
+class AppState:
+    """Holds app-level state."""
+    event_loop: Optional[asyncio.AbstractEventLoop] = None
+    audio_worker: Optional[AudioWorker] = None
+
+
+state = AppState()
 
 
 def on_reading_callback(data: dict):
-    """handle incoming sensor data from ESP32"""
-    # callback for when ESP32 sends something
+    """Handle incoming sensor data from ESP32."""
     try:
         save_reading_to_db(data)
+        if state.event_loop and manager.active_connections:
+            asyncio.run_coroutine_threadsafe(
+                manager.broadcast(data), state.event_loop
+            )
     except (ValueError, RuntimeError) as e:
-        logger.error("Failed to save reading: %s", e)
+        logger.error("Reading error: %s", e)
 
-    # send to websocket clients if any
-    if _event_loop and manager.active_connections:
-        try:
-            asyncio.run_coroutine_threadsafe(manager.broadcast(data), _event_loop)
-        except RuntimeError as e:
-            logger.error("Failed to broadcast: %s", e)
+
+def on_noise_callback(noise_level: NoiseLevel):
+    """Handle incoming noise data from audio worker."""
+    try:
+        save_noise_reading_to_db(smoothed_db=noise_level.smoothed_db)
+
+        noise_data = {
+            "sensor": "noise_db",
+            "value": round(noise_level.smoothed_db, 1),
+            "rms": round(noise_level.rms, 4),
+            "db": round(noise_level.db, 1),
+            "timestamp": noise_level.timestamp
+        }
+
+        if state.event_loop and manager.active_connections:
+            asyncio.run_coroutine_threadsafe(
+                manager.broadcast(noise_data), state.event_loop
+            )
+    except (ValueError, RuntimeError) as e:
+        logger.error("Noise error: %s", e)
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """handle startup and shutdown events"""
-    # startup handler
-    global _event_loop
+    """Handle startup and shutdown events."""
     logger.info("Starting up...")
-    _event_loop = asyncio.get_running_loop()
+    state.event_loop = asyncio.get_running_loop()
     esp32_reader.on_reading = on_reading_callback
+
+    try:
+        state.audio_worker = AudioWorker(
+            sample_rate=44100,
+            block_duration=0.5,
+            callback=on_noise_callback,
+            calibration_factor=94.0,
+            smoothing_window=10
+        )
+        state.audio_worker.start()
+        logger.info("Audio worker started")
+    except (RuntimeError, OSError) as e:
+        logger.warning("Audio worker failed: %s", e)
+
     yield
+
     logger.info("Shutting down...")
     esp32_reader.disconnect()
+    if state.audio_worker and state.audio_worker.is_running():
+        state.audio_worker.stop()
 
 
 app = FastAPI(title="DeskBuddy API", lifespan=lifespan)
@@ -108,26 +148,23 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
-    """check if backend and db are working"""
-    # make sure db is alive
-    db_ok = check_db_connection()
+    """Check if backend and db are working."""
     return {
         "status": "ok",
         "time_utc": datetime.now(timezone.utc).isoformat(),
-        "db_ok": db_ok
+        "db_ok": check_db_connection()
     }
 
 
 @app.get("/")
 async def root():
-    """root endpoint"""
+    """Root endpoint."""
     return {"message": "DeskBuddy API is running"}
 
 
 @app.websocket("/stream")
 async def websocket_endpoint(websocket: WebSocket):
-    """websocket for streaming live sensor data"""
-    # websocket endpoint for live sensor feed
+    """WebSocket for streaming live sensor data."""
     await manager.connect(websocket)
     try:
         while True:

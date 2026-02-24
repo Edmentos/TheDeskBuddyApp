@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getHealth, listSerialPorts, connectToSerial, autoConnectToSerial, disconnectFromSerial, getSerialStatus, getSerialData, getCurrentPosture, getPostureStats } from '../services/api';
+import { getHealth, listSerialPorts, connectToSerial, autoConnectToSerial, disconnectFromSerial, getSerialStatus, getSerialData, getCurrentPosture, getPostureStats, getNoiseThresholds } from '../services/api';
 import { useDeskBuddyStream } from '../hooks/useDeskBuddyStream';
 
 const STATUS_MAP = {
@@ -14,10 +14,18 @@ const SENSORS = [
   { key: 'distance_cm', icon: '📏', label: 'Distance', unit: 'cm', decimals: 1 }
 ];
 
+const getNoiseLevel = (db, thresholds) => {
+  if (db < thresholds.quiet) return { level: 'Quiet', color: '#4caf50', icon: '🔇' };
+  if (db < thresholds.normal) return { level: 'Normal', color: '#2196f3', icon: '🔉' };
+  if (db < thresholds.loud) return { level: 'Moderate', color: '#ff9800', icon: '🔊' };
+  return { level: 'Loud', color: '#f44336', icon: '📢' };
+};
+
 function Dashboard() {
   const [health, setHealth] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [noiseThresholds, setNoiseThresholds] = useState({ quiet: 50, normal: 60, loud: 70 });
 
   // track serial port state
   const [ports, setPorts] = useState([]);
@@ -34,6 +42,10 @@ function Dashboard() {
 
   const formatValue = (value, unit, decimals = 1) =>
     value == null ? '--' : `${Number(value).toFixed(decimals)}${unit}`;
+
+  useEffect(() => {
+    getNoiseThresholds().then(setNoiseThresholds).catch(console.error);
+  }, []);
 
   useEffect(() => {
     async function fetchHealth() {
@@ -197,6 +209,41 @@ function Dashboard() {
           </div>
         ))}
       </div>
+
+      {sensorData.sensor === 'noise_db' && sensorData.value != null && (
+        <div className="card" style={{
+          backgroundColor: (() => {
+            const info = getNoiseLevel(sensorData.value, noiseThresholds);
+            return info.color + '15';
+          })(),
+          border: (() => {
+            const info = getNoiseLevel(sensorData.value, noiseThresholds);
+            return `2px solid ${info.color}`;
+          })()
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+            <div style={{ fontSize: '48px' }}>
+              {getNoiseLevel(sensorData.value, noiseThresholds).icon}
+            </div>
+            <div>
+              <h2 style={{
+                margin: '0 0 8px 0',
+                color: getNoiseLevel(sensorData.value, noiseThresholds).color
+              }}>
+                Noise Level: {getNoiseLevel(sensorData.value, noiseThresholds).level}
+              </h2>
+              <p style={{
+                fontSize: '32px',
+                fontWeight: 'bold',
+                margin: '0',
+                color: getNoiseLevel(sensorData.value, noiseThresholds).color
+              }}>
+                {sensorData.value.toFixed(1)} dB
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {postureState && (
         <div className="card">

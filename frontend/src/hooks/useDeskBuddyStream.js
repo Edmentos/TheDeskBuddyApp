@@ -31,12 +31,10 @@ export function useDeskBuddyStream(url) {
       if (!isMountedRef.current) return;
       try {
         const message = JSON.parse(event.data);
-        setData({
-          temp_c: message.temp_c ?? null,
-          hum_pct: message.hum_pct ?? null,
-          distance_cm: message.distance_cm ?? null,
-          ts_utc: message.ts_utc ?? null
-        });
+        setData(prevData => ({
+          ...prevData,
+          ...message
+        }));
       } catch (error) {
         console.error('WebSocket parse error:', error);
       }
