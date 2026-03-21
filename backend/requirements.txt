@@ -8,3 +8,5 @@ pydantic-settings
 pyserial
 sounddevice
 numpy
+opencv-python
+mediapipe
