@@ -14,6 +14,7 @@ from app.audio_worker import AudioWorker, NoiseLevel
 from app.db.database import check_db_connection
 from app.db.persistence import save_reading_to_db, save_noise_reading_to_db
 from app.serial.serial_reader import esp32_reader
+from app.webcam_worker import SlouchReading, WebcamSlouchWorker
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -64,6 +65,7 @@ class AppState:
     """Holds app-level state."""
     event_loop: Optional[asyncio.AbstractEventLoop] = None
     audio_worker: Optional[AudioWorker] = None
+    webcam_worker: Optional[WebcamSlouchWorker] = None
 
 
 state = AppState()
@@ -102,6 +104,24 @@ def on_noise_callback(noise_level: NoiseLevel):
         logger.error("Noise error: %s", e)
 
 
+def on_slouch_callback(reading: SlouchReading):
+    """Handle incoming webcam slouch readings."""
+    slouch_data = {
+        "timestamp": reading.timestamp,
+        "slouch_score": reading.slouch_score,
+        "posture_state": reading.posture_state,
+        "confidence": reading.confidence
+    }
+
+    if state.event_loop and manager.active_connections:
+        try:
+            asyncio.run_coroutine_threadsafe(
+                manager.broadcast(slouch_data), state.event_loop
+            )
+        except RuntimeError as e:
+            logger.error("Slouch broadcast error: %s", e)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Handle startup and shutdown events."""
@@ -122,12 +142,27 @@ async def lifespan(_app: FastAPI):
     except (RuntimeError, OSError) as e:
         logger.warning("Audio worker failed: %s", e)
 
+    try:
+        state.webcam_worker = WebcamSlouchWorker(
+            callback=on_slouch_callback,
+            camera_index=0,
+            target_fps=1.5,
+            reconnect_delay_sec=2.0,
+            min_landmark_visibility=0.5
+        )
+        state.webcam_worker.start()
+        logger.info("Webcam slouch worker started")
+    except (RuntimeError, OSError, ImportError) as e:
+        logger.warning("Webcam slouch worker failed: %s", e)
+
     yield
 
     logger.info("Shutting down...")
     esp32_reader.disconnect()
     if state.audio_worker and state.audio_worker.is_running():
         state.audio_worker.stop()
+    if state.webcam_worker and state.webcam_worker.is_running():
+        state.webcam_worker.stop()
 
 
 app = FastAPI(title="DeskBuddy API", lifespan=lifespan)
