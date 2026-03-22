@@ -1,5 +1,19 @@
-import { useState, useEffect } from 'react';
-import { getHealth, listSerialPorts, connectToSerial, autoConnectToSerial, disconnectFromSerial, getSerialStatus, getSerialData, getCurrentPosture, getPostureStats, getNoiseThresholds } from '../services/api';
+import { useState, useEffect, useRef } from 'react';
+import {
+  getHealth,
+  listSerialPorts,
+  connectToSerial,
+  autoConnectToSerial,
+  disconnectFromSerial,
+  getSerialStatus,
+  getSerialData,
+  getCurrentPosture,
+  getPostureStats,
+  getNoiseThresholds,
+  getWebcamPostureSettings,
+  stopWebcamWorker,
+  startWebcamWorker
+} from '../services/api';
 import { useDeskBuddyStream } from '../hooks/useDeskBuddyStream';
 
 const STATUS_MAP = {
@@ -31,12 +45,22 @@ function Dashboard() {
   const [ports, setPorts] = useState([]);
   const [selectedPort, setSelectedPort] = useState('');
   const [serialStatus, setSerialStatus] = useState({ connected: false, port: null });
+  const [serialData, setSerialData] = useState(null);
   const [serialError, setSerialError] = useState(null);
   const [connecting, setConnecting] = useState(false);
 
   // posture tracking
   const [postureState, setPostureState] = useState(null);
   const [postureStats, setPostureStats] = useState(null);
+  const [webcamEvents, setWebcamEvents] = useState([]);
+  const [slouchTrend, setSlouchTrend] = useState([]);
+  const [lastWebcamTs, setLastWebcamTs] = useState(null);
+  const [webcamPreviewError, setWebcamPreviewError] = useState('');
+  const [webcamPreviewReady, setWebcamPreviewReady] = useState(false);
+  const [webcamControlBusy, setWebcamControlBusy] = useState(false);
+  const [backendWebcamPaused, setBackendWebcamPaused] = useState(false);
+  const webcamPreviewRef = useRef(null);
+  const webcamLocalStreamRef = useRef(null);
 
   const { data: sensorData, status: wsStatus } = useDeskBuddyStream('ws://localhost:8000/stream');
 
@@ -46,6 +70,118 @@ function Dashboard() {
   useEffect(() => {
     getNoiseThresholds().then(setNoiseThresholds).catch(console.error);
   }, []);
+
+  useEffect(() => {
+    async function syncWebcamWorkerState() {
+      try {
+        const data = await getWebcamPostureSettings();
+        setBackendWebcamPaused(!data.running);
+      } catch (err) {
+        // If settings endpoint fails, keep current UI state.
+      }
+    }
+
+    syncWebcamWorkerState();
+    const interval = setInterval(syncWebcamWorkerState, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (sensorData.ts && sensorData.slouch_score != null) {
+      setLastWebcamTs(sensorData.ts);
+      setSlouchTrend((prev) => [...prev.slice(-19), Number(sensorData.slouch_score)]);
+    }
+
+    if (sensorData.stream_type === 'webcam_posture_event' && sensorData.event_type) {
+      const eventText = sensorData.event_type === 'state_changed'
+        ? `State changed: ${sensorData.from_state} -> ${sensorData.to_state}`
+        : `Slouching sustained (${sensorData.duration_sec}s)`;
+      setWebcamEvents((prev) => [...prev.slice(-4), { ts: sensorData.ts, text: eventText }]);
+    }
+  }, [sensorData]);
+
+  const stopPreview = () => {
+    const stream = webcamLocalStreamRef.current;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+      webcamLocalStreamRef.current = null;
+    }
+    if (webcamPreviewRef.current) {
+      webcamPreviewRef.current.srcObject = null;
+    }
+    setWebcamPreviewReady(false);
+  };
+
+  const startPreview = async () => {
+    stopPreview();
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setWebcamPreviewError('Browser camera API is not available.');
+      return false;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 320, height: 180 },
+        audio: false
+      });
+
+      webcamLocalStreamRef.current = stream;
+      if (webcamPreviewRef.current) {
+        webcamPreviewRef.current.srcObject = stream;
+      }
+      setWebcamPreviewReady(true);
+      setWebcamPreviewError('');
+      return true;
+    } catch (err) {
+      setWebcamPreviewReady(false);
+      setWebcamPreviewError(
+        'Unable to access webcam preview. Camera may be busy (often by backend worker).'
+      );
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    startPreview();
+
+    return () => {
+      stopPreview();
+    };
+  }, []);
+
+  const handlePauseBackendWebcam = async () => {
+    setWebcamControlBusy(true);
+    try {
+      const data = await stopWebcamWorker();
+      setBackendWebcamPaused(!data.running);
+
+      // Give the backend capture a short moment to release the camera.
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const started = await startPreview();
+      if (!started) {
+        setWebcamPreviewError('Backend webcam paused. Retrying local preview...');
+      }
+    } catch (err) {
+      setWebcamPreviewError(err.message || 'Failed to pause backend webcam worker.');
+    } finally {
+      setWebcamControlBusy(false);
+    }
+  };
+
+  const handleResumeBackendWebcam = async () => {
+    setWebcamControlBusy(true);
+    try {
+      stopPreview();
+      const data = await startWebcamWorker();
+      setBackendWebcamPaused(!data.running);
+      setWebcamPreviewError('Backend webcam resumed.');
+    } catch (err) {
+      setWebcamPreviewError(err.message || 'Failed to resume backend webcam worker.');
+    } finally {
+      setWebcamControlBusy(false);
+    }
+  };
 
   useEffect(() => {
     async function fetchHealth() {
@@ -188,6 +324,16 @@ function Dashboard() {
   };
 
   const { text: statusText, class: statusClass } = STATUS_MAP[wsStatus];
+  const webcamFresh = lastWebcamTs && (Date.now() / 1000 - lastWebcamTs) < 8;
+  const webcamAvailable = wsStatus === 'connected' && webcamFresh;
+  const postureLabel = sensorData.posture_state || 'unknown';
+  const postureColor = postureLabel === 'good'
+    ? '#4caf50'
+    : postureLabel === 'warning'
+      ? '#ff9800'
+      : postureLabel === 'slouching'
+        ? '#f44336'
+        : '#9e9e9e';
 
   return (
     <div>
@@ -244,6 +390,96 @@ function Dashboard() {
           </div>
         </div>
       )}
+
+      <div className="card" style={{ borderLeft: `6px solid ${postureColor}` }}>
+        <h2>Webcam Posture</h2>
+
+        <div style={{ marginBottom: '12px' }}>
+          <strong>Camera preview (local only):</strong>
+          {webcamPreviewError && (
+            <p style={{ margin: '6px 0', color: '#f44336' }}>{webcamPreviewError}</p>
+          )}
+          <div style={{ display: 'flex', gap: '8px', margin: '8px 0' }}>
+            <button onClick={handlePauseBackendWebcam} disabled={webcamControlBusy || backendWebcamPaused}>
+              {webcamControlBusy ? 'Working...' : 'Pause Backend Webcam'}
+            </button>
+            <button onClick={handleResumeBackendWebcam} disabled={webcamControlBusy}>
+              {webcamControlBusy ? 'Working...' : 'Resume Backend Webcam'}
+            </button>
+          </div>
+          <div style={{ marginTop: '8px' }}>
+            <video
+              ref={webcamPreviewRef}
+              autoPlay
+              muted
+              playsInline
+              style={{
+                width: '280px',
+                maxWidth: '100%',
+                borderRadius: '8px',
+                border: '1px solid #ddd',
+                transform: 'scaleX(-1)',
+                backgroundColor: '#111'
+              }}
+            />
+            {!webcamPreviewReady && !webcamPreviewError && (
+              <p style={{ marginTop: '6px', color: '#666' }}>Starting camera preview...</p>
+            )}
+          </div>
+        </div>
+
+        {!webcamAvailable ? (
+          <div style={{ color: '#777' }}>
+            <p style={{ margin: '8px 0' }}>Webcam is unavailable or no posture data yet.</p>
+            {backendWebcamPaused && (
+              <p style={{ margin: '8px 0' }}>Backend webcam worker is paused, so posture score is not updating.</p>
+            )}
+            <p style={{ margin: '8px 0' }}>Check camera permissions and make sure no other app is using it.</p>
+          </div>
+        ) : (
+          <div>
+            <p style={{ margin: '6px 0' }}>
+              <strong>Current state:</strong>{' '}
+              <span style={{ color: postureColor, fontWeight: 'bold' }}>{String(postureLabel).toUpperCase()}</span>
+            </p>
+            <p style={{ margin: '6px 0' }}>
+              <strong>Live slouch score:</strong> {sensorData.slouch_score?.toFixed(1) ?? '--'}
+            </p>
+            <p style={{ margin: '6px 0' }}>
+              <strong>Confidence:</strong> {sensorData.confidence?.toFixed(1) ?? '--'}%
+            </p>
+
+            <div style={{ marginTop: '10px' }}>
+              <strong>Recent trend:</strong>
+              <div style={{ display: 'flex', gap: '4px', marginTop: '8px', alignItems: 'flex-end' }}>
+                {slouchTrend.slice(-12).map((score, idx) => (
+                  <div
+                    key={`${idx}-${score}`}
+                    title={`Score ${score.toFixed(1)}`}
+                    style={{
+                      width: '10px',
+                      height: `${Math.max(6, Math.min(48, score * 0.6))}px`,
+                      backgroundColor: score < 35 ? '#4caf50' : score < 60 ? '#ff9800' : '#f44336',
+                      borderRadius: '2px'
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {webcamEvents.length > 0 && (
+              <div style={{ marginTop: '12px' }}>
+                <strong>Recent events:</strong>
+                {webcamEvents.slice().reverse().map((evt) => (
+                  <p key={`${evt.ts}-${evt.text}`} style={{ margin: '4px 0', color: '#666' }}>
+                    {evt.text}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {postureState && (
         <div className="card">

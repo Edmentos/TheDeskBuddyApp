@@ -14,6 +14,7 @@ from app.audio_worker import AudioWorker, NoiseLevel
 from app.db.database import check_db_connection
 from app.db.persistence import save_reading_to_db, save_noise_reading_to_db
 from app.serial.serial_reader import esp32_reader
+from app.webcam_runtime import set_active_webcam_worker
 from app.webcam_worker import SlouchReading, WebcamSlouchWorker
 
 logging.basicConfig(level=logging.INFO)
@@ -66,19 +67,44 @@ class AppState:
     event_loop: Optional[asyncio.AbstractEventLoop] = None
     audio_worker: Optional[AudioWorker] = None
     webcam_worker: Optional[WebcamSlouchWorker] = None
+    last_posture_state: str = "unknown"
+    last_posture_event_ts: float = 0.0
+    slouch_since_ts: Optional[float] = None
 
 
 state = AppState()
+
+
+def _broadcast_payload(payload: dict, source: str):
+    """Broadcast payload to connected websocket clients."""
+    if not state.event_loop or not manager.active_connections:
+        return
+
+    try:
+        asyncio.run_coroutine_threadsafe(
+            manager.broadcast(payload), state.event_loop
+        )
+    except RuntimeError as e:
+        logger.error("%s broadcast error: %s", source, e)
+
+
+def _emit_posture_event(event_type: str, ts: float, extra: Optional[dict] = None):
+    """Emit posture event payload to websocket clients."""
+    payload = {
+        "stream_type": "webcam_posture_event",
+        "event_type": event_type,
+        "ts": ts
+    }
+    if extra:
+        payload.update(extra)
+    _broadcast_payload(payload, "Posture event")
 
 
 def on_reading_callback(data: dict):
     """Handle incoming sensor data from ESP32."""
     try:
         save_reading_to_db(data)
-        if state.event_loop and manager.active_connections:
-            asyncio.run_coroutine_threadsafe(
-                manager.broadcast(data), state.event_loop
-            )
+        _broadcast_payload(data, "Reading")
     except (ValueError, RuntimeError) as e:
         logger.error("Reading error: %s", e)
 
@@ -95,11 +121,7 @@ def on_noise_callback(noise_level: NoiseLevel):
             "db": round(noise_level.db, 1),
             "timestamp": noise_level.timestamp
         }
-
-        if state.event_loop and manager.active_connections:
-            asyncio.run_coroutine_threadsafe(
-                manager.broadcast(noise_data), state.event_loop
-            )
+        _broadcast_payload(noise_data, "Noise")
     except (ValueError, RuntimeError) as e:
         logger.error("Noise error: %s", e)
 
@@ -107,19 +129,41 @@ def on_noise_callback(noise_level: NoiseLevel):
 def on_slouch_callback(reading: SlouchReading):
     """Handle incoming webcam slouch readings."""
     slouch_data = {
+        "stream_type": "webcam_posture",
+        "ts": reading.timestamp,
         "timestamp": reading.timestamp,
         "slouch_score": reading.slouch_score,
         "posture_state": reading.posture_state,
         "confidence": reading.confidence
     }
+    _broadcast_payload(slouch_data, "Slouch")
 
-    if state.event_loop and manager.active_connections:
-        try:
-            asyncio.run_coroutine_threadsafe(
-                manager.broadcast(slouch_data), state.event_loop
+    prev_state = state.last_posture_state
+    next_state = reading.posture_state
+
+    if next_state != prev_state:
+        _emit_posture_event(
+            event_type="state_changed",
+            ts=reading.timestamp,
+            extra={"from_state": prev_state, "to_state": next_state}
+        )
+        state.last_posture_state = next_state
+        state.last_posture_event_ts = reading.timestamp
+
+    if next_state == "slouching":
+        if state.slouch_since_ts is None:
+            state.slouch_since_ts = reading.timestamp
+        sustained_sec = reading.timestamp - state.slouch_since_ts
+        # Emit at 10s intervals while slouching so UI can alert user.
+        if sustained_sec >= 10.0 and (reading.timestamp - state.last_posture_event_ts) >= 10.0:
+            _emit_posture_event(
+                event_type="slouching_sustained",
+                ts=reading.timestamp,
+                extra={"duration_sec": round(sustained_sec, 1)}
             )
-        except RuntimeError as e:
-            logger.error("Slouch broadcast error: %s", e)
+            state.last_posture_event_ts = reading.timestamp
+    else:
+        state.slouch_since_ts = None
 
 
 @asynccontextmanager
@@ -148,11 +192,18 @@ async def lifespan(_app: FastAPI):
             camera_index=0,
             target_fps=1.5,
             reconnect_delay_sec=2.0,
-            min_landmark_visibility=0.5
+            min_landmark_visibility=0.5,
+            score_smoothing_window=5,
+            min_state_duration_sec=2.0,
+            good_threshold=35.0,
+            warning_threshold=60.0,
+            min_confidence_for_state=45.0
         )
         state.webcam_worker.start()
+        set_active_webcam_worker(state.webcam_worker)
         logger.info("Webcam slouch worker started")
-    except (RuntimeError, OSError, ImportError) as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        set_active_webcam_worker(None)
         logger.warning("Webcam slouch worker failed: %s", e)
 
     yield
@@ -163,6 +214,7 @@ async def lifespan(_app: FastAPI):
         state.audio_worker.stop()
     if state.webcam_worker and state.webcam_worker.is_running():
         state.webcam_worker.stop()
+    set_active_webcam_worker(None)
 
 
 app = FastAPI(title="DeskBuddy API", lifespan=lifespan)

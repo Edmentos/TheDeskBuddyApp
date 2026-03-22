@@ -9,6 +9,7 @@ from app.posture import get_posture_tracker
 from app.db.db import get_db
 from app.db.models import Calibration
 from app.serial.serial_reader import esp32_reader
+from app.webcam_runtime import get_active_webcam_worker
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -182,3 +183,103 @@ async def update_noise_thresholds(thresholds: NoiseThresholds):
         _noise_thresholds["loud"] = thresholds.loud
 
     return {"status": "updated", **_noise_thresholds}
+
+
+class WebcamToleranceSettings(BaseModel):
+    """Tolerance values used against webcam baseline features."""
+    head_forward: float = Field(0.08, ge=0.0, le=1.0)
+    neck_angle_norm: float = Field(0.12, ge=0.0, le=1.0)
+    shoulder_alignment: float = Field(0.06, ge=0.0, le=1.0)
+
+
+class WebcamCalibrationRequest(BaseModel):
+    """Calibration request for webcam posture baseline."""
+    duration_sec: float = Field(6.0, ge=2.0, le=20.0)
+    min_samples: int = Field(6, ge=3, le=60)
+
+
+@router.get("/webcam/posture")
+async def get_webcam_posture_settings():
+    """Get webcam baseline + tolerance settings."""
+    worker = get_active_webcam_worker()
+    if not worker:
+        return {
+            "webcam_available": False,
+            "running": False,
+            "baseline": None,
+            "tolerances": None
+        }
+
+    running = worker.is_running()
+
+    return {
+        "webcam_available": running,
+        "running": running,
+        "baseline": worker.get_baseline(),
+        "tolerances": worker.get_tolerances()
+    }
+
+
+@router.put("/webcam/posture")
+async def update_webcam_posture_settings(settings: WebcamToleranceSettings):
+    """Update webcam baseline tolerance settings."""
+    worker = get_active_webcam_worker()
+    if not worker or not worker.is_running():
+        raise HTTPException(status_code=503, detail="Webcam worker is not running")
+
+    worker.update_tolerances(
+        head_forward=settings.head_forward,
+        neck_angle_norm=settings.neck_angle_norm,
+        shoulder_alignment=settings.shoulder_alignment
+    )
+
+    return {
+        "status": "updated",
+        "tolerances": worker.get_tolerances(),
+        "baseline": worker.get_baseline()
+    }
+
+
+@router.post("/webcam/calibrate")
+async def calibrate_webcam_posture(req: WebcamCalibrationRequest):
+    """Capture a short good-posture baseline from webcam landmarks."""
+    worker = get_active_webcam_worker()
+    if not worker or not worker.is_running():
+        raise HTTPException(status_code=503, detail="Webcam worker is not running")
+
+    try:
+        baseline = worker.calibrate_baseline(
+            duration_sec=req.duration_sec,
+            min_samples=req.min_samples
+        )
+        return {
+            "status": "calibrated",
+            "baseline": baseline,
+            "tolerances": worker.get_tolerances()
+        }
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/webcam/worker/stop")
+async def stop_webcam_worker():
+    """Temporarily stop webcam worker (useful if browser preview needs camera)."""
+    worker = get_active_webcam_worker()
+    if not worker:
+        return {"status": "ok", "running": False}
+
+    if worker.is_running():
+        worker.stop()
+    return {"status": "ok", "running": False}
+
+
+@router.post("/webcam/worker/start")
+async def start_webcam_worker():
+    """Start webcam worker again after temporary pause."""
+    worker = get_active_webcam_worker()
+    if not worker:
+        raise HTTPException(status_code=503, detail="Webcam worker is not initialized")
+
+    if not worker.is_running():
+        worker.start()
+    return {"status": "ok", "running": True}

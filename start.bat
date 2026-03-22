@@ -13,7 +13,7 @@ if %errorlevel% neq 0 (
 
 REM Wait for database to be ready
 echo Waiting for database to be ready...
-timeout /t 5 /nobreak >nul
+cmd /c "timeout /t 5 /nobreak >nul"
 
 REM Initialize database tables
 echo Initializing database tables...
@@ -32,7 +32,7 @@ echo Starting Backend Server...
 start "DeskBuddy Backend" cmd /k "cd /d %~dp0backend && if exist venv\Scripts\activate.bat (venv\Scripts\activate.bat) && python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000"
 
 REM Wait a bit for backend to start
-timeout /t 3 /nobreak >nul
+cmd /c "timeout /t 3 /nobreak >nul"
 
 REM Start frontend in new window
 echo Starting Frontend Dev Server...
