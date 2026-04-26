@@ -5,11 +5,15 @@ import threading
 import time
 from typing import Callable, Dict, List, Optional
 
+import logging
+
 import serial
 import serial.tools.list_ports
 
 from app.posture import get_posture_tracker
 from app.posture_events import get_event_logger
+
+logger = logging.getLogger(__name__)
 
 
 class ESP32SerialReader:
@@ -94,7 +98,7 @@ class ESP32SerialReader:
             return True
 
         except (serial.SerialException, OSError) as e:
-            print(f"Connection error: {e}")
+            logger.error("Connection error on %s: %s", port, e)
             self.is_connected = False
             return False
 
@@ -110,7 +114,7 @@ class ESP32SerialReader:
             try:
                 self.serial_connection.close()
             except (serial.SerialException, OSError) as e:
-                print(f"Close error: {e}")
+                logger.warning("Error closing serial port: %s", e)
 
         self.serial_connection = None
         self.port = None
@@ -122,7 +126,7 @@ class ESP32SerialReader:
         while not self.stop_reading:
             if not self.serial_connection or not self.serial_connection.is_open:
                 if self.auto_reconnect and self.port:
-                    print(f"Attempting to reconnect to {self.port}...")
+                    logger.warning("Serial connection lost, retrying %s in 2s...", self.port)
                     time.sleep(2.0)
                     try:
                         self.serial_connection = serial.Serial(
@@ -130,7 +134,7 @@ class ESP32SerialReader:
                             xonxoff=False, rtscts=False, dsrdtr=False
                         )
                         self.is_connected = True
-                        print(f"Reconnected to {self.port}")
+                        logger.info("Reconnected to %s", self.port)
                     except (serial.SerialException, OSError):
                         continue
                 else:
@@ -174,12 +178,12 @@ class ESP32SerialReader:
                         self.latest_data = {"raw_bytes": line.hex()}
                 time.sleep(0.01)
             except serial.SerialException:
-                print("Serial connection lost")
+                logger.warning("Serial connection lost on %s", self.port)
                 self.is_connected = False
                 if not self.auto_reconnect:
                     break
             except (UnicodeDecodeError, json.JSONDecodeError, OSError) as e:
-                print(f"Read error: {e}")
+                logger.debug("Read error (non-fatal): %s", e)
                 time.sleep(0.1)
 
     def get_latest_data(self) -> Optional[Dict]:

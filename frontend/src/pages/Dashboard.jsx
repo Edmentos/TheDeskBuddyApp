@@ -64,6 +64,13 @@ function Dashboard() {
 
   const { data: sensorData, status: wsStatus } = useDeskBuddyStream('ws://localhost:8000/stream');
 
+  // ask for notification permission once on load so the alert can fire without a user gesture
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
+
   const formatValue = (value, unit, decimals = 1) =>
     value == null ? '--' : `${Number(value).toFixed(decimals)}${unit}`;
 
@@ -97,6 +104,14 @@ function Dashboard() {
         ? `State changed: ${sensorData.from_state} -> ${sensorData.to_state}`
         : `Slouching sustained (${sensorData.duration_sec}s)`;
       setWebcamEvents((prev) => [...prev.slice(-4), { ts: sensorData.ts, text: eventText }]);
+
+      if (sensorData.event_type === 'slouching_sustained' && 'Notification' in window && Notification.permission === 'granted') {
+        // tag replaces the previous alert instead of stacking them
+        new Notification('Posture Alert', {
+          body: `You've been slouching for ${Math.round(sensorData.duration_sec)}s — sit up straight!`,
+          tag: 'slouch-alert'
+        });
+      }
     }
   }, [sensorData]);
 
@@ -122,7 +137,7 @@ function Dashboard() {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 320, height: 180 },
+        video: { facingMode: 'user' },
         audio: false
       });
 
@@ -142,9 +157,9 @@ function Dashboard() {
     }
   };
 
+  // No auto-start: backend worker owns the camera on load.
+  // Preview is only started when user explicitly pauses the backend.
   useEffect(() => {
-    startPreview();
-
     return () => {
       stopPreview();
     };
@@ -175,7 +190,7 @@ function Dashboard() {
       stopPreview();
       const data = await startWebcamWorker();
       setBackendWebcamPaused(!data.running);
-      setWebcamPreviewError('Backend webcam resumed.');
+      setWebcamPreviewError('');
     } catch (err) {
       setWebcamPreviewError(err.message || 'Failed to resume backend webcam worker.');
     } finally {
@@ -399,13 +414,16 @@ function Dashboard() {
           {webcamPreviewError && (
             <p style={{ margin: '6px 0', color: '#f44336' }}>{webcamPreviewError}</p>
           )}
-          <div style={{ display: 'flex', gap: '8px', margin: '8px 0' }}>
+          <div style={{ display: 'flex', gap: '8px', margin: '8px 0', alignItems: 'center' }}>
             <button onClick={handlePauseBackendWebcam} disabled={webcamControlBusy || backendWebcamPaused}>
-              {webcamControlBusy ? 'Working...' : 'Pause Backend Webcam'}
+              {webcamControlBusy ? 'Working...' : 'Pause & Preview'}
             </button>
-            <button onClick={handleResumeBackendWebcam} disabled={webcamControlBusy}>
-              {webcamControlBusy ? 'Working...' : 'Resume Backend Webcam'}
+            <button onClick={handleResumeBackendWebcam} disabled={webcamControlBusy || !backendWebcamPaused}>
+              {webcamControlBusy ? 'Working...' : 'Resume Detection'}
             </button>
+            <span style={{ fontSize: '13px', color: backendWebcamPaused ? '#ff9800' : '#4caf50' }}>
+              {backendWebcamPaused ? 'Detection paused — preview active' : 'Backend is analysing posture'}
+            </span>
           </div>
           <div style={{ marginTop: '8px' }}>
             <video
@@ -423,7 +441,11 @@ function Dashboard() {
               }}
             />
             {!webcamPreviewReady && !webcamPreviewError && (
-              <p style={{ marginTop: '6px', color: '#666' }}>Starting camera preview...</p>
+              <p style={{ marginTop: '6px', color: '#666' }}>
+                {backendWebcamPaused
+                  ? 'Starting camera preview...'
+                  : 'Click "Pause & Preview" to see the camera feed.'}
+              </p>
             )}
           </div>
         </div>

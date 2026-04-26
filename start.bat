@@ -11,9 +11,9 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-REM Wait for database to be ready
-echo Waiting for database to be ready...
-cmd /c "timeout /t 5 /nobreak >nul"
+REM Brief pause so Docker has time to start the postgres process before init_db
+REM tries to connect. init_db now retries internally so a 3s head-start is enough.
+cmd /c "timeout /t 3 /nobreak >nul"
 
 REM Initialize database tables
 echo Initializing database tables...
@@ -29,7 +29,7 @@ cd ..
 
 REM Start backend in new window with venv activated
 echo Starting Backend Server...
-start "DeskBuddy Backend" cmd /k "cd /d %~dp0backend && if exist venv\Scripts\activate.bat (venv\Scripts\activate.bat) && python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000"
+start "DeskBuddy Backend" cmd /k "cd /d %~dp0backend && call venv\Scripts\activate.bat && python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000"
 
 REM Wait a bit for backend to start
 cmd /c "timeout /t 3 /nobreak >nul"

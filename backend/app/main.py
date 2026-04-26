@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+from logging.handlers import RotatingFileHandler
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -17,7 +18,34 @@ from app.serial.serial_reader import esp32_reader
 from app.webcam_runtime import set_active_webcam_worker
 from app.webcam_worker import SlouchReading, WebcamSlouchWorker
 
-logging.basicConfig(level=logging.INFO)
+def _setup_logging():
+    """
+    Log to both console and a rotating file.
+    File caps at 5MB and keeps 3 backups so you always have recent history
+    without filling the disk.
+    """
+    fmt = logging.Formatter(
+        "%(asctime)s %(levelname)-8s %(name)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    console.setFormatter(fmt)
+
+    file_handler = RotatingFileHandler(
+        "backend.log", maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(fmt)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.addHandler(console)
+    root_logger.addHandler(file_handler)
+
+
+_setup_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -154,8 +182,8 @@ def on_slouch_callback(reading: SlouchReading):
         if state.slouch_since_ts is None:
             state.slouch_since_ts = reading.timestamp
         sustained_sec = reading.timestamp - state.slouch_since_ts
-        # Emit at 10s intervals while slouching so UI can alert user.
-        if sustained_sec >= 10.0 and (reading.timestamp - state.last_posture_event_ts) >= 10.0:
+        # Emit at 30s intervals while slouching so the frontend can notify the user.
+        if sustained_sec >= 30.0 and (reading.timestamp - state.last_posture_event_ts) >= 30.0:
             _emit_posture_event(
                 event_type="slouching_sustained",
                 ts=reading.timestamp,
@@ -192,12 +220,19 @@ async def lifespan(_app: FastAPI):
             camera_index=0,
             target_fps=1.5,
             reconnect_delay_sec=2.0,
-            min_landmark_visibility=0.5,
-            score_smoothing_window=5,
-            min_state_duration_sec=2.0,
-            good_threshold=35.0,
-            warning_threshold=60.0,
-            min_confidence_for_state=45.0
+            # 0.4 instead of 0.5 — gets more frames through when a landmark is
+            # partially occluded (common from a low camera angle)
+            min_landmark_visibility=0.4,
+            # smaller window = faster response to actual slouch
+            score_smoothing_window=3,
+            # 1.5s instead of 2.0s — still debounces flickers but reacts sooner
+            min_state_duration_sec=1.5,
+            # 20 instead of 35 — without a baseline the absolute score is small,
+            # 35 let too many slouch positions through as "good"
+            good_threshold=20.0,
+            warning_threshold=50.0,
+            # lower confidence gate so more frames contribute to state decisions
+            min_confidence_for_state=35.0
         )
         state.webcam_worker.start()
         set_active_webcam_worker(state.webcam_worker)

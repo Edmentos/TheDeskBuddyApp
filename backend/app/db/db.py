@@ -22,5 +22,11 @@ def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        # explicit rollback so a mid-transaction failure (e.g. save_calibration
+        # deactivating old rows before the new one commits) doesn't leave the
+        # DB in a dirty state until the connection is recycled
+        db.rollback()
+        raise
     finally:
         db.close()

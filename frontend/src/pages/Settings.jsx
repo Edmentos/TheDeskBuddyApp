@@ -31,9 +31,8 @@ function Settings() {
   const [webcamAvailable, setWebcamAvailable] = useState(false);
   const [webcamBaseline, setWebcamBaseline] = useState(null);
   const [webcamTolerances, setWebcamTolerances] = useState({
-    head_forward: 0.08,
-    neck_angle_norm: 0.12,
-    shoulder_alignment: 0.06
+    ear_span: 0.15,
+    head_drop: 0.15
   });
   const [webcamMessage, setWebcamMessage] = useState('');
 
@@ -167,7 +166,7 @@ function Settings() {
     setLoading(true);
     setWebcamMessage('');
     try {
-      const data = await calibrateWebcamPosture(6, 6);
+      const data = await calibrateWebcamPosture(10, 4);
       setWebcamBaseline(data.baseline);
       if (data.tolerances) setWebcamTolerances(data.tolerances);
       setWebcamMessage('Webcam baseline calibrated successfully!');
@@ -504,7 +503,9 @@ function Settings() {
       <div className="card" style={{ maxWidth: '600px', marginTop: '20px' }}>
         <h2>Webcam Posture Calibration</h2>
         <p style={{ color: '#666', fontSize: '14px', marginBottom: '12px' }}>
-          Capture a short good-posture baseline, then tune tolerances for slouch detection.
+          Sit up straight, hit calibrate, then hold still for 10s. After that the system
+          compares your head and shoulder position to that baseline — move too far forward
+          and it flags a slouch.
         </p>
 
         <div style={{ marginBottom: '14px' }}>
@@ -519,10 +520,9 @@ function Settings() {
             marginBottom: '14px'
           }}>
             <div><strong>Current baseline</strong></div>
-            <div>Head-shoulder offset: {webcamBaseline.head_forward?.toFixed(4)}</div>
-            <div>Neck angle (norm): {webcamBaseline.neck_angle_norm?.toFixed(4)}</div>
-            <div>Shoulder alignment: {webcamBaseline.shoulder_alignment?.toFixed(4)}</div>
-            <div>Samples: {webcamBaseline.sample_count}</div>
+            <div>Ear span: {webcamBaseline.ear_span?.toFixed(4)}</div>
+            <div>Head-shoulder gap: {webcamBaseline.head_shoulder_gap?.toFixed(4)}</div>
+            <div>Samples captured: {webcamBaseline.sample_count}</div>
           </div>
         ) : (
           <p style={{ color: '#777', marginBottom: '14px' }}>No webcam baseline saved yet.</p>
@@ -545,45 +545,42 @@ function Settings() {
             opacity: (loading || !webcamAvailable) ? 0.6 : 1
           }}
         >
-          {loading ? 'Calibrating...' : 'Calibrate Good Posture (6s)'}
+          {loading ? 'Calibrating... (hold still)' : 'Calibrate Good Posture (10s)'}
         </button>
 
         <div style={{ display: 'grid', gap: '10px' }}>
           <div>
-            <label style={{ fontWeight: 'bold' }}>Head Forward Tolerance</label>
+            <label style={{ fontWeight: 'bold' }}>Ear Span Tolerance</label>
+            <p style={{ color: '#666', fontSize: '12px', margin: '2px 0 6px' }}>
+              How much your head can move toward the camera before triggering (0.15 = 15% wiggle room)
+            </p>
             <input
               type="number"
               step="0.01"
-              value={webcamTolerances.head_forward}
+              min="0"
+              max="1"
+              value={webcamTolerances.ear_span}
               onChange={(e) => setWebcamTolerances({
                 ...webcamTolerances,
-                head_forward: parseFloat(e.target.value)
+                ear_span: parseFloat(e.target.value)
               })}
               style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
             />
           </div>
           <div>
-            <label style={{ fontWeight: 'bold' }}>Neck Angle Tolerance</label>
+            <label style={{ fontWeight: 'bold' }}>Head Drop Tolerance</label>
+            <p style={{ color: '#666', fontSize: '12px', margin: '2px 0 6px' }}>
+              How much your head can drop toward your shoulders before triggering (0.15 = 15% wiggle room)
+            </p>
             <input
               type="number"
               step="0.01"
-              value={webcamTolerances.neck_angle_norm}
+              min="0"
+              max="1"
+              value={webcamTolerances.head_drop}
               onChange={(e) => setWebcamTolerances({
                 ...webcamTolerances,
-                neck_angle_norm: parseFloat(e.target.value)
-              })}
-              style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
-            />
-          </div>
-          <div>
-            <label style={{ fontWeight: 'bold' }}>Shoulder Alignment Tolerance</label>
-            <input
-              type="number"
-              step="0.01"
-              value={webcamTolerances.shoulder_alignment}
-              onChange={(e) => setWebcamTolerances({
-                ...webcamTolerances,
-                shoulder_alignment: parseFloat(e.target.value)
+                head_drop: parseFloat(e.target.value)
               })}
               style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
             />
