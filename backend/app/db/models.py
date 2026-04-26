@@ -42,7 +42,7 @@ class PostureEvent(Base):
     __tablename__ = "posture_events"
 
     id = Column(Integer, primary_key=True, index=True)
-    start_time = Column(DateTime, nullable=False, index=True)
+    start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=True)
     posture = Column(String, nullable=False)  # 'sitting' or 'standing'
     duration_seconds = Column(Float, nullable=True)

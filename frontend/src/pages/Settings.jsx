@@ -1,5 +1,14 @@
 import { useState, useEffect } from 'react';
-import { recordSittingHeight, recordStandingHeight, saveCalibration as saveCalibrationAPI, getNoiseThresholds, updateNoiseThresholds } from '../services/api';
+import {
+  recordSittingHeight,
+  recordStandingHeight,
+  saveCalibration as saveCalibrationAPI,
+  getNoiseThresholds,
+  updateNoiseThresholds,
+  getWebcamPostureSettings,
+  updateWebcamPostureSettings,
+  calibrateWebcamPosture
+} from '../services/api';
 
 function Settings() {
   const [sittingHeight, setSittingHeight] = useState(80);
@@ -18,10 +27,26 @@ function Settings() {
   const [noiseThresholds, setNoiseThresholds] = useState({ quiet: 50, normal: 60, loud: 70 });
   const [noiseMessage, setNoiseMessage] = useState('');
 
+  // webcam posture settings
+  const [webcamAvailable, setWebcamAvailable] = useState(false);
+  const [webcamBaseline, setWebcamBaseline] = useState(null);
+  const [webcamTolerances, setWebcamTolerances] = useState({
+    ear_span: 0.15,
+    head_drop: 0.15
+  });
+  const [webcamMessage, setWebcamMessage] = useState('');
+
   // Load current settings on mount
   useEffect(() => {
     fetchSettings();
     getNoiseThresholds().then(setNoiseThresholds).catch(console.error);
+    getWebcamPostureSettings()
+      .then((data) => {
+        setWebcamAvailable(Boolean(data.webcam_available));
+        if (data.baseline) setWebcamBaseline(data.baseline);
+        if (data.tolerances) setWebcamTolerances(data.tolerances);
+      })
+      .catch(console.error);
   }, []);
 
   const fetchSettings = async () => {
@@ -117,6 +142,36 @@ function Settings() {
       setNoiseMessage('Noise thresholds saved!');
     } catch (error) {
       setNoiseMessage('Error: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveWebcamSettings = async () => {
+    setLoading(true);
+    setWebcamMessage('');
+    try {
+      const data = await updateWebcamPostureSettings(webcamTolerances);
+      if (data.baseline) setWebcamBaseline(data.baseline);
+      if (data.tolerances) setWebcamTolerances(data.tolerances);
+      setWebcamMessage('Webcam posture tolerances saved!');
+    } catch (error) {
+      setWebcamMessage('Error: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const runWebcamCalibration = async () => {
+    setLoading(true);
+    setWebcamMessage('');
+    try {
+      const data = await calibrateWebcamPosture(10, 4);
+      setWebcamBaseline(data.baseline);
+      if (data.tolerances) setWebcamTolerances(data.tolerances);
+      setWebcamMessage('Webcam baseline calibrated successfully!');
+    } catch (error) {
+      setWebcamMessage('Error: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -443,6 +498,126 @@ function Settings() {
           <li>If the smoothed distance ≥ standing threshold, you're standing</li>
           <li>Otherwise, you're sitting</li>
         </ul>
+      </div>
+
+      <div className="card" style={{ maxWidth: '600px', marginTop: '20px' }}>
+        <h2>Webcam Posture Calibration</h2>
+        <p style={{ color: '#666', fontSize: '14px', marginBottom: '12px' }}>
+          Sit up straight, hit calibrate, then hold still for 10s. After that the system
+          compares your head and shoulder position to that baseline — move too far forward
+          and it flags a slouch.
+        </p>
+
+        <div style={{ marginBottom: '14px' }}>
+          <strong>Webcam status:</strong> {webcamAvailable ? 'Available' : 'Not available'}
+        </div>
+
+        {webcamBaseline ? (
+          <div style={{
+            padding: '10px',
+            borderRadius: '4px',
+            backgroundColor: '#f5f5f5',
+            marginBottom: '14px'
+          }}>
+            <div><strong>Current baseline</strong></div>
+            <div>Ear span: {webcamBaseline.ear_span?.toFixed(4)}</div>
+            <div>Head-shoulder gap: {webcamBaseline.head_shoulder_gap?.toFixed(4)}</div>
+            <div>Samples captured: {webcamBaseline.sample_count}</div>
+          </div>
+        ) : (
+          <p style={{ color: '#777', marginBottom: '14px' }}>No webcam baseline saved yet.</p>
+        )}
+
+        <button
+          onClick={runWebcamCalibration}
+          disabled={loading || !webcamAvailable}
+          style={{
+            width: '100%',
+            padding: '10px',
+            marginBottom: '14px',
+            fontSize: '15px',
+            fontWeight: 'bold',
+            backgroundColor: '#6f42c1',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: (loading || !webcamAvailable) ? 'not-allowed' : 'pointer',
+            opacity: (loading || !webcamAvailable) ? 0.6 : 1
+          }}
+        >
+          {loading ? 'Calibrating... (hold still)' : 'Calibrate Good Posture (10s)'}
+        </button>
+
+        <div style={{ display: 'grid', gap: '10px' }}>
+          <div>
+            <label style={{ fontWeight: 'bold' }}>Ear Span Tolerance</label>
+            <p style={{ color: '#666', fontSize: '12px', margin: '2px 0 6px' }}>
+              How much your head can move toward the camera before triggering (0.15 = 15% wiggle room)
+            </p>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              value={webcamTolerances.ear_span}
+              onChange={(e) => setWebcamTolerances({
+                ...webcamTolerances,
+                ear_span: parseFloat(e.target.value)
+              })}
+              style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
+            />
+          </div>
+          <div>
+            <label style={{ fontWeight: 'bold' }}>Head Drop Tolerance</label>
+            <p style={{ color: '#666', fontSize: '12px', margin: '2px 0 6px' }}>
+              How much your head can drop toward your shoulders before triggering (0.15 = 15% wiggle room)
+            </p>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              value={webcamTolerances.head_drop}
+              onChange={(e) => setWebcamTolerances({
+                ...webcamTolerances,
+                head_drop: parseFloat(e.target.value)
+              })}
+              style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
+            />
+          </div>
+        </div>
+
+        <button
+          onClick={saveWebcamSettings}
+          disabled={loading || !webcamAvailable}
+          style={{
+            width: '100%',
+            padding: '10px',
+            marginTop: '14px',
+            fontSize: '15px',
+            fontWeight: 'bold',
+            backgroundColor: '#17a2b8',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: (loading || !webcamAvailable) ? 'not-allowed' : 'pointer',
+            opacity: (loading || !webcamAvailable) ? 0.6 : 1
+          }}
+        >
+          {loading ? 'Saving...' : 'Save Webcam Tolerances'}
+        </button>
+
+        {webcamMessage && (
+          <div style={{
+            marginTop: '12px',
+            padding: '10px',
+            backgroundColor: webcamMessage.includes('Error') ? '#f8d7da' : '#d4edda',
+            color: webcamMessage.includes('Error') ? '#721c24' : '#155724',
+            borderRadius: '4px'
+          }}>
+            {webcamMessage}
+          </div>
+        )}
       </div>
     </div>
   );

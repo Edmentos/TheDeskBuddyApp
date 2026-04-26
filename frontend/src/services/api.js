@@ -1,4 +1,20 @@
 const API_BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_FALLBACK_URL = 'http://localhost:8000';
+
+async function fetchWithHostFallback(path, options = {}) {
+  const targets = [API_BASE_URL, API_BASE_FALLBACK_URL];
+  let lastError = null;
+
+  for (const baseUrl of targets) {
+    try {
+      return await fetch(`${baseUrl}${path}`, options);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error('Network request failed');
+}
 
 export async function getHealth() {
   try {
@@ -244,5 +260,56 @@ export async function updateNoiseThresholds(thresholds) {
     body: JSON.stringify(thresholds),
   });
   if (!response.ok) throw new Error('Failed to update noise thresholds');
+  return await response.json();
+}
+
+export async function getWebcamPostureSettings() {
+  const response = await fetchWithHostFallback('/settings/webcam/posture');
+  if (!response.ok) throw new Error('Failed to get webcam posture settings');
+  return await response.json();
+}
+
+export async function updateWebcamPostureSettings(settings) {
+  const response = await fetchWithHostFallback('/settings/webcam/posture', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'Failed to update webcam posture settings');
+  }
+  return await response.json();
+}
+
+export async function calibrateWebcamPosture(durationSec = 6, minSamples = 6) {
+  const response = await fetchWithHostFallback('/settings/webcam/calibrate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ duration_sec: durationSec, min_samples: minSamples }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'Failed to calibrate webcam posture');
+  }
+  return await response.json();
+}
+
+export async function stopWebcamWorker() {
+  const response = await fetchWithHostFallback('/settings/webcam/worker/stop', {
+    method: 'POST',
+  });
+  if (!response.ok) throw new Error('Failed to stop webcam worker');
+  return await response.json();
+}
+
+export async function startWebcamWorker() {
+  const response = await fetchWithHostFallback('/settings/webcam/worker/start', {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'Failed to start webcam worker');
+  }
   return await response.json();
 }

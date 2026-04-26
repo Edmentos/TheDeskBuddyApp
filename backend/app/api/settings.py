@@ -9,6 +9,7 @@ from app.posture import get_posture_tracker
 from app.db.db import get_db
 from app.db.models import Calibration
 from app.serial.serial_reader import esp32_reader
+from app.webcam_runtime import get_active_webcam_worker
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -114,14 +115,14 @@ async def save_calibration(cal: CalibrationData, db: Session = Depends(get_db)):
     db.add(new_cal)
     db.commit()
 
-    # update posture tracker with midpoint as threshold
+    # transition threshold sits at the midpoint between the two recorded heights;
+    # store the actual sitting height so GET /settings/posture reflects what the user entered
     midpoint = (cal.sitting_height_cm + cal.standing_height_cm) / 2
-    offset = cal.standing_height_cm - midpoint
 
     tracker = get_posture_tracker()
     tracker.update_thresholds(
-        sitting_height_cm=midpoint,
-        standing_offset_cm=offset
+        sitting_height_cm=cal.sitting_height_cm,
+        standing_offset_cm=midpoint - cal.sitting_height_cm
     )
 
     return {
@@ -160,9 +161,11 @@ _noise_thresholds = {
 
 class NoiseThresholds(BaseModel):
     """Noise level thresholds in dB."""
-    quiet: Optional[float] = Field(50.0, ge=30, le=120)
-    normal: Optional[float] = Field(60.0, ge=30, le=120)
-    loud: Optional[float] = Field(70.0, ge=30, le=120)
+    # default None so a partial PUT only updates fields the caller actually sends;
+    # non-None defaults would silently reset omitted fields to hardcoded values
+    quiet: Optional[float] = Field(None, ge=30, le=120)
+    normal: Optional[float] = Field(None, ge=30, le=120)
+    loud: Optional[float] = Field(None, ge=30, le=120)
 
 
 @router.get("/noise-thresholds")
@@ -182,3 +185,105 @@ async def update_noise_thresholds(thresholds: NoiseThresholds):
         _noise_thresholds["loud"] = thresholds.loud
 
     return {"status": "updated", **_noise_thresholds}
+
+
+class WebcamToleranceSettings(BaseModel):
+    """Wiggle-room fractions for each bounding-box signal.
+
+    ear_span:  how much the ear span can grow before scoring starts (0.15 = 15%)
+    head_drop: how much the head-shoulder gap can shrink before scoring starts
+    """
+    ear_span: float = Field(0.15, ge=0.0, le=1.0)
+    head_drop: float = Field(0.15, ge=0.0, le=1.0)
+
+
+class WebcamCalibrationRequest(BaseModel):
+    """Calibration request for webcam posture baseline."""
+    duration_sec: float = Field(10.0, ge=2.0, le=20.0)
+    min_samples: int = Field(4, ge=2, le=60)
+
+
+@router.get("/webcam/posture")
+async def get_webcam_posture_settings():
+    """Get webcam baseline + tolerance settings."""
+    worker = get_active_webcam_worker()
+    if not worker:
+        return {
+            "webcam_available": False,
+            "running": False,
+            "baseline": None,
+            "tolerances": None
+        }
+
+    running = worker.is_running()
+
+    return {
+        "webcam_available": running,
+        "running": running,
+        "baseline": worker.get_baseline(),
+        "tolerances": worker.get_tolerances()
+    }
+
+
+@router.put("/webcam/posture")
+async def update_webcam_posture_settings(settings: WebcamToleranceSettings):
+    """Update webcam baseline tolerance settings."""
+    worker = get_active_webcam_worker()
+    if not worker or not worker.is_running():
+        raise HTTPException(status_code=503, detail="Webcam worker is not running")
+
+    worker.update_tolerances(
+        ear_span=settings.ear_span,
+        head_drop=settings.head_drop
+    )
+
+    return {
+        "status": "updated",
+        "tolerances": worker.get_tolerances(),
+        "baseline": worker.get_baseline()
+    }
+
+
+@router.post("/webcam/calibrate")
+async def calibrate_webcam_posture(req: WebcamCalibrationRequest):
+    """Capture a short good-posture baseline from webcam landmarks."""
+    worker = get_active_webcam_worker()
+    if not worker or not worker.is_running():
+        raise HTTPException(status_code=503, detail="Webcam worker is not running")
+
+    try:
+        baseline = worker.calibrate_baseline(
+            duration_sec=req.duration_sec,
+            min_samples=req.min_samples
+        )
+        return {
+            "status": "calibrated",
+            "baseline": baseline,
+            "tolerances": worker.get_tolerances()
+        }
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/webcam/worker/stop")
+async def stop_webcam_worker():
+    """Temporarily stop webcam worker (useful if browser preview needs camera)."""
+    worker = get_active_webcam_worker()
+    if not worker:
+        return {"status": "ok", "running": False}
+
+    if worker.is_running():
+        worker.stop()
+    return {"status": "ok", "running": False}
+
+
+@router.post("/webcam/worker/start")
+async def start_webcam_worker():
+    """Start webcam worker again after temporary pause."""
+    worker = get_active_webcam_worker()
+    if not worker:
+        raise HTTPException(status_code=503, detail="Webcam worker is not initialized")
+
+    if not worker.is_running():
+        worker.start()
+    return {"status": "ok", "running": True}

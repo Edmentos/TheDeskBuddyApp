@@ -1,4 +1,5 @@
 """save readings from ESP32 and audio worker to postgres"""
+import logging
 from datetime import datetime, timezone
 from typing import Dict
 
@@ -6,6 +7,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.db import SessionLocal
 from app.db.models import Reading
+
+logger = logging.getLogger(__name__)
 
 
 def save_reading_to_db(data: Dict):
@@ -35,7 +38,7 @@ def save_reading_to_db(data: Dict):
 
         db.commit()
     except (SQLAlchemyError, ValueError) as e:
-        print(f"Database error: {e}")
+        logger.error("Failed to save sensor reading: %s", e)
         db.rollback()
     finally:
         db.close()
@@ -58,7 +61,7 @@ def save_noise_reading_to_db(smoothed_db: float):
         db.add(reading)
         db.commit()
     except (SQLAlchemyError, ValueError) as e:
-        print(f"Failed to save noise reading: {e}")
+        logger.error("Failed to save noise reading: %s", e)
         db.rollback()
     finally:
         db.close()

@@ -1,4 +1,11 @@
-"""Serial reader module for ESP32 desk sensor data."""
+"""
+NOT IN USE - this is the old serial reader from before the refactor.
+
+The live implementation is at app/serial/serial_reader.py, which is what main.py imports.
+This file writes wrong sensor names to the DB ('distance', 'temperature', 'humidity')
+instead of the ones the frontend queries ('distance_cm', 'temp_c', 'hum_pct'), so
+do NOT run this directly or re-import it.
+"""
 import json
 import logging
 import threading
